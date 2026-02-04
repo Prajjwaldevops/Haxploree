@@ -118,10 +118,15 @@ def create_user_if_not_exists(clerk_id: str) -> Dict[str, Any]:
     Raises:
         SupabaseError: If the operation fails
     """
+    print(f"\n[SUPABASE] create_user_if_not_exists called for: {clerk_id}")
+    
     # First try to find existing user
     user = get_user_by_clerk_id(clerk_id)
     if user:
+        print(f"[SUPABASE] Found existing user: {user['id']}")
         return user
+    
+    print(f"[SUPABASE] No user found, creating new user...")
     
     # Create new user if not found
     try:
@@ -132,10 +137,16 @@ def create_user_if_not_exists(clerk_id: str) -> Dict[str, Any]:
             "clerk_id": clerk_id,
         }
         
+        print(f"[SUPABASE] POST to: {url}")
+        print(f"[SUPABASE] Data: {data}")
+        
         logger.info(f"Creating new user for clerk_id: {clerk_id}")
         
         with httpx.Client() as client:
             response = client.post(url, headers=headers, json=data)
+            print(f"[SUPABASE] Response status: {response.status_code}")
+            print(f"[SUPABASE] Response body: {response.text[:500] if response.text else 'empty'}")
+            
             response.raise_for_status()
             
             users = response.json()
@@ -143,10 +154,12 @@ def create_user_if_not_exists(clerk_id: str) -> Dict[str, Any]:
             if not users:
                 raise SupabaseError("User creation returned empty response")
             
+            print(f"[SUPABASE] Created user: {users[0]}")
             logger.info(f"Created new user: {users[0]['id']}")
             return users[0]
             
     except httpx.HTTPStatusError as e:
+        print(f"[SUPABASE] HTTP Error: {e.response.status_code} - {e.response.text}")
         # Handle unique constraint violation (user created by another request)
         if e.response.status_code == 409:
             logger.info("User was created by another request, retrying lookup")
@@ -157,6 +170,9 @@ def create_user_if_not_exists(clerk_id: str) -> Dict[str, Any]:
         logger.error(f"Failed to create user: {e}")
         raise SupabaseError(f"Failed to create user: {e.response.text}")
     except Exception as e:
+        print(f"[SUPABASE] Exception: {type(e).__name__}: {e}")
+        import traceback
+        print(f"[SUPABASE] Traceback: {traceback.format_exc()}")
         logger.error(f"Unexpected error creating user: {e}")
         raise SupabaseError(f"Failed to create user: {str(e)}")
 

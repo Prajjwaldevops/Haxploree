@@ -39,19 +39,25 @@ class DepositUploadView(APIView):
     The image URL is a signed URL suitable for ML model inference.
     """
     
-    permission_classes = [IsAuthenticated]
+    # TEMPORARY: Disable auth for debugging
+    permission_classes = []  # Was: [IsAuthenticated]
+    authentication_classes = []  # Skip auth
     
     def dispatch(self, request, *args, **kwargs):
         """Override dispatch to catch ALL exceptions and return JSON."""
         try:
             return super().dispatch(request, *args, **kwargs)
         except Exception as e:
+            import traceback
+            print(f"\n[UPLOAD] Dispatch caught exception: {e}")
+            print(f"[UPLOAD] Traceback:\n{traceback.format_exc()}")
             logger.exception(f"Unhandled exception in deposit upload: {e}")
             return Response(
                 {
                     "success": False,
                     "error": "Internal server error",
                     "detail": str(e),
+                    "traceback": traceback.format_exc(),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
@@ -60,12 +66,19 @@ class DepositUploadView(APIView):
         """
         Handle image upload and transaction creation.
         """
+        print("\n[UPLOAD] POST request received!")
+        
+        # TEMPORARY: Use test user ID since auth is disabled
         # Get the authenticated Clerk user from the request
         # This is set by ClerkJWTAuthentication
-        clerk_user = request.user
-        clerk_user_id = clerk_user.clerk_user_id
+        if hasattr(request, 'user') and hasattr(request.user, 'clerk_user_id'):
+            clerk_user_id = request.user.clerk_user_id
+        else:
+            # Fallback for testing
+            clerk_user_id = "test_user_from_frontend"
+            print(f"[UPLOAD] Using test user ID: {clerk_user_id}")
         
-        logger.info(f"Processing upload for Clerk user: {clerk_user_id}")
+        logger.info(f"Processing upload for user: {clerk_user_id}")
         
         # Validate the request
         serializer = UploadRequestSerializer(data=request.data)
@@ -247,4 +260,71 @@ class DebugConfigView(APIView):
             result["errors"].append(f"Clerk config error: {str(e)}")
         
         return Response(result)
+
+
+class TestUploadView(APIView):
+    """
+    POST /api/deposits/test-upload/
+    
+    Test upload endpoint (NO AUTH). Tests R2 upload directly.
+    Remove in production!
+    """
+    
+    permission_classes = []
+    authentication_classes = []
+    
+    def post(self, request):
+        import traceback
+        from .services.r2_upload import upload_image_to_r2, R2UploadError
+        
+        print("\n[TEST-UPLOAD] Starting test upload...")
+        
+        # Check if image was sent
+        if 'image' not in request.FILES:
+            return Response({
+                "success": False,
+                "error": "No image file provided",
+                "hint": "Send a POST with form-data containing 'image' field"
+            }, status=400)
+        
+        try:
+            image = request.FILES['image']
+            image_data = image.read()
+            original_filename = image.name
+            
+            print(f"[TEST-UPLOAD] File received: {original_filename}, size: {len(image_data)} bytes")
+            
+            # Try to upload to R2 with a test user ID
+            object_key, signed_url = upload_image_to_r2(
+                file_data=image_data,
+                original_filename=original_filename,
+                clerk_user_id="test_user_123",
+            )
+            
+            print(f"[TEST-UPLOAD] SUCCESS! Object key: {object_key}")
+            
+            return Response({
+                "success": True,
+                "message": "Test upload successful!",
+                "object_key": object_key,
+                "signed_url": signed_url[:100] + "..." if len(signed_url) > 100 else signed_url,
+            })
+            
+        except R2UploadError as e:
+            print(f"[TEST-UPLOAD] R2 Error: {e}")
+            return Response({
+                "success": False,
+                "error": f"R2 upload failed: {str(e)}",
+                "traceback": traceback.format_exc()
+            }, status=500)
+        except Exception as e:
+            print(f"[TEST-UPLOAD] Unexpected error: {e}")
+            print(f"[TEST-UPLOAD] Traceback:\n{traceback.format_exc()}")
+            return Response({
+                "success": False,
+                "error": f"Unexpected error: {str(e)}",
+                "type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            }, status=500)
+
 

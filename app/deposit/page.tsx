@@ -141,7 +141,7 @@ export default function DepositPage() {
 
     // Add toast notification
     const addToast = (type: "success" | "error", message: string) => {
-        const id = Date.now().toString();
+        const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         setToasts(prev => [...prev, { id, type, message }]);
     };
 
