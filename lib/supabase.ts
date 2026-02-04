@@ -25,7 +25,10 @@ export interface User {
   username: string;
   role: 'user' | 'admin';
   total_points: number;
+  total_co2_saved: number;
+  items_recycled: number;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface Bin {
@@ -43,10 +46,14 @@ export interface Bin {
 export interface Transaction {
   id: string;
   user_id: string;
-  bin_id: string;
+  bin_id?: string;
   item_type: string;
   weight: number;
-  points: number;
+  points_earned: number;
+  co2_saved: number;
   image_url: string;
+  r2_object_key?: string;
+  status: 'pending' | 'completed' | 'failed';
   created_at: string;
 }
+

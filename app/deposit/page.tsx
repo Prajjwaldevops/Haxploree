@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "framer-motion";
-import { useAuth } from "@clerk/nextjs";
+import { useUser } from "@clerk/nextjs";
 import {
     Upload,
     Camera,
@@ -22,18 +22,28 @@ import { cn } from "@/lib/utils";
 
 type Stage = "upload" | "uploading" | "processing" | "result" | "error";
 
-// Response type from the Django backend
+// Response type from the API
 interface UploadResponse {
     success: boolean;
     message?: string;
     image_url?: string;
     transaction_id?: string;
+    item_type?: string;
+    weight?: number;
+    points_earned?: number;
+    co2_saved?: number;
     status?: string;
     error?: string;
     detail?: string;
+    user?: {
+        id: string;
+        clerk_id: string;
+        email: string;
+        total_points: number;
+    };
 }
 
-// Detection result (will be populated after ML model is added)
+// Detection result
 interface DetectionResult {
     itemType: string;
     confidence: number;
@@ -50,46 +60,15 @@ interface Toast {
     message: string;
 }
 
-// Mock detection for now - will be replaced with actual ML inference
-function mockDetection(weight: number): Omit<DetectionResult, 'transactionId' | 'imageUrl'> {
-    let itemType: string;
-    let confidence: number;
-
-    if (weight >= 100 && weight <= 250) {
-        itemType = 'Smartphone';
-        confidence = 0.92;
-    } else if (weight > 1000 && weight <= 3000) {
-        itemType = 'Laptop';
-        confidence = 0.88;
-    } else if (weight > 250 && weight <= 600) {
-        itemType = 'Tablet';
-        confidence = 0.85;
-    } else if (weight > 3000) {
-        itemType = 'Monitor';
-        confidence = 0.82;
-    } else if (weight < 100 && weight >= 20) {
-        itemType = 'Battery';
-        confidence = 0.90;
-    } else {
-        itemType = 'Electronic Device';
-        confidence = 0.75;
-    }
-
-    // Calculate points based on weight
-    const basePoints: Record<string, number> = {
-        smartphone: 50, laptop: 150, tablet: 80, battery: 30,
-        monitor: 100, 'electronic device': 15,
-    };
-    const base = basePoints[itemType.toLowerCase()] || 15;
-    const points = Math.round(base * Math.max(1, weight / 100));
-
-    // CO2 savings
-    const co2Savings: Record<string, number> = {
-        smartphone: 70, laptop: 350, tablet: 100, battery: 15, monitor: 200, 'electronic device': 10,
-    };
-    const co2Saved = co2Savings[itemType.toLowerCase()] || 10;
-
-    return { itemType, confidence, points, co2Saved };
+// Estimate item type based on weight (will be replaced with ML model)
+function getItemTypeFromWeight(weight: number): string {
+    if (weight >= 100 && weight <= 250) return 'Smartphone';
+    if (weight > 1000 && weight <= 3000) return 'Laptop';
+    if (weight > 250 && weight <= 600) return 'Tablet';
+    if (weight > 3000) return 'Monitor';
+    if (weight < 100 && weight >= 20) return 'Battery';
+    if (weight >= 600 && weight <= 1000) return 'Power Bank';
+    return 'Electronic Device';
 }
 
 // Toast Component
@@ -137,7 +116,7 @@ export default function DepositPage() {
     const [uploadProgress, setUploadProgress] = useState<string>("");
     const [toasts, setToasts] = useState<Toast[]>([]);
 
-    const { getToken, isSignedIn } = useAuth();
+    const { isSignedIn } = useUser();
 
     // Add toast notification
     const addToast = (type: "success" | "error", message: string) => {
@@ -190,52 +169,46 @@ export default function DepositPage() {
         setUploadProgress("Connecting to server...");
 
         try {
-            // Get Clerk session token for backend authentication
-            const token = await getToken();
-
-            if (!token) {
-                throw new Error("Failed to get authentication token");
-            }
-
             setUploadProgress("Uploading image to cloud storage...");
 
-            // Prepare form data with the image
+
+            // Prepare form data with image, weight, and item type
             const formData = new FormData();
             formData.append("image", imageFile);
+            formData.append("weight", weight);
+            // Simple item type detection based on weight (will be replaced with ML)
+            const estimatedItemType = getItemTypeFromWeight(weightNum);
+            formData.append("itemType", estimatedItemType);
 
-            // Send to API route (uses Next.js API or proxies to Django if configured)
+            // Send to API route
             const response = await fetch(`/api/deposits/upload`, {
                 method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${token}`,
-                },
                 body: formData,
             });
 
             const data: UploadResponse = await response.json();
 
             if (!response.ok || !data.success) {
-                // Show error toast for R2 upload failure
                 addToast("error", "❌ Image upload failed! Please try again.");
                 throw new Error(data.error || data.detail || "Upload failed");
             }
 
-            // Show success toast for R2 upload
-            addToast("success", "✅ Image uploaded successfully to cloud!");
+            // Show success toast
+            addToast("success", `✅ Deposit recorded! You earned ${data.points_earned} points!`);
 
-            // Move to processing stage
+            // Move to processing then result
             setStage("processing");
-            setUploadProgress("Image uploaded! AI processing will be available soon...");
+            setUploadProgress("Processing your deposit...");
 
-            // Get mock detection result (will be replaced with actual ML)
-            const mockResult = mockDetection(weightNum);
+            // Brief delay for UX
+            await new Promise(resolve => setTimeout(resolve, 1500));
 
-            // Simulate a brief delay to show the processing message
-            await new Promise(resolve => setTimeout(resolve, 2000));
-
-            // Combine backend response with mock detection
+            // Use actual data from API response
             setResult({
-                ...mockResult,
+                itemType: data.item_type || estimatedItemType,
+                confidence: 0.92, // Will be from ML model later
+                points: data.points_earned || 0,
+                co2Saved: data.co2_saved || 0,
                 transactionId: data.transaction_id || "",
                 imageUrl: data.image_url || "",
             });
