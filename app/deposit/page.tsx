@@ -203,9 +203,8 @@ export default function DepositPage() {
             const formData = new FormData();
             formData.append("image", imageFile);
 
-            // Send to Django backend
-            const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
-            const response = await fetch(`${backendUrl}/api/deposits/upload/`, {
+            // Send to API route (uses Next.js API or proxies to Django if configured)
+            const response = await fetch(`/api/deposits/upload`, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${token}`,
