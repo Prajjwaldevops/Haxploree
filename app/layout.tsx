@@ -10,9 +10,9 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "BinSmart | Smart E-Waste Recycling",
-  description: "Recycle your e-waste smartly with AI-powered identification and earn rewards. Join the revolution with BinSmart by Team AntiGravity.",
+  description: "Recycle your e-waste smartly with AI-powered identification and earn rewards. Join the revolution with BinSmart by Team Prakriti.",
   keywords: ["e-waste", "recycling", "smart bin", "sustainability", "rewards", "AI"],
-  authors: [{ name: "Team AntiGravity" }],
+  authors: [{ name: "Team Prakriti" }],
   openGraph: {
     title: "BinSmart | Smart E-Waste Recycling",
     description: "Recycle your e-waste smartly and earn rewards",

@@ -125,7 +125,7 @@ export default function Footer() {
                 <div className="mt-12 pt-8 border-t border-white/10 flex flex-col md:flex-row justify-between items-center gap-4">
                     <p className="text-sm text-slate-400">
                         © {currentYear} BinSmart. Built with ⚡ by{" "}
-                        <span className="font-bold text-emerald-400">Team AntiGravity</span>
+                        <span className="font-bold text-emerald-400">Team Prakriti</span>
                     </p>
                     <p className="text-sm text-slate-500">
                         HAXPLORE 2025 • Making the Earth cleaner, one device at a time.

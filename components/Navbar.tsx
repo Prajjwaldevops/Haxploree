@@ -78,7 +78,7 @@ export default function Navbar() {
                     ) : (
                         <Link
                             href="/sign-in"
-                            className="bg-gradient-to-r from-emerald-500 to-cyan-500 text-black px-6 py-2.5 rounded-full font-semibold shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] transition-all duration-300 transform hover:scale-105"
+                            className="bg-gradient-to-r from-emerald-500 to-cyan-500 text-black px-4 py-2 text-sm md:px-6 md:py-2.5 md:text-base rounded-full font-semibold shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] transition-all duration-300 transform hover:scale-105"
                         >
                             Get Started
                         </Link>
