@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { cn } from "@/lib/utils";
+import { useUserLocation } from "@/lib/useUserLocation";
+import { MapBin } from "@/lib/mapbox";
 
 type Stage = "upload" | "uploading" | "processing" | "result" | "error";
 
@@ -115,8 +117,22 @@ export default function DepositPage() {
     const [error, setError] = useState<string | null>(null);
     const [uploadProgress, setUploadProgress] = useState<string>("");
     const [toasts, setToasts] = useState<Toast[]>([]);
+    const [bins, setBins] = useState<MapBin[]>([]);
 
     const { isSignedIn } = useUser();
+    const { nearestDistance, isLoading: isLocationLoading, error: locationError } = useUserLocation(bins);
+
+    // Fetch bins for location check
+    useEffect(() => {
+        fetch("/api/admin/bins")
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && Array.isArray(data.bins)) {
+                    setBins(data.bins.filter((b: MapBin) => b.is_operational));
+                }
+            })
+            .catch(err => console.error("Error fetching bins:", err));
+    }, []);
 
     // Add toast notification
     const addToast = (type: "success" | "error", message: string) => {
@@ -161,6 +177,23 @@ export default function DepositPage() {
         const weightNum = parseFloat(weight);
         if (isNaN(weightNum) || weightNum <= 0) {
             setError("Please enter a valid weight");
+            return;
+        }
+
+        // Location Check
+        if (isLocationLoading) {
+            setError("Checking your location... Please wait.");
+            return;
+        }
+
+        if (locationError) {
+            setError("Location error: " + locationError);
+            return;
+        }
+
+        // 200m radius = 0.2 km
+        if (nearestDistance === null || nearestDistance > 0.2) {
+            setError("You are not in the location area. Please go within 200m of a dustbin.");
             return;
         }
 

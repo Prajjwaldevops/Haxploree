@@ -4,8 +4,8 @@
 
 // BIT Sindri coordinates (center point)
 export const BIT_SINDRI_CENTER = {
-    latitude: 23.6693,
-    longitude: 86.8947,
+    latitude: 23.653689,
+    longitude: 86.471895,
 };
 
 // Map configuration

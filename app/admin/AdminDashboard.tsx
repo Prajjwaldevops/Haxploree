@@ -45,6 +45,17 @@ interface Stats {
     points: { total: number; weekly: number };
     environment: { co2Saved: number; treesEquivalent: number };
     alerts: { critical: number; warning: number; bins: { id: string; name: string; fill_level: number }[] };
+    analytics: {
+        dailyActivity: { date: string; count: number; points: number; co2: number }[];
+        binPredictions: {
+            id: string;
+            name: string;
+            current_level: number;
+            fill_rate_per_hour: string;
+            predicted_full_date: string;
+            days_remaining: number;
+        }[];
+    };
 }
 
 interface Alert {
@@ -57,7 +68,7 @@ interface Alert {
     dismissed: boolean;
 }
 
-type Tab = "overview" | "bins" | "routes" | "alerts";
+type Tab = "overview" | "bins" | "routes" | "alerts" | "users";
 
 export default function AdminDashboard() {
     const router = useRouter();
@@ -74,6 +85,13 @@ export default function AdminDashboard() {
         longitude: BIT_SINDRI_CENTER.longitude,
         zoom: 12,
     });
+
+    // User Reports State
+    const [users, setUsers] = useState<any[]>([]);
+    const [selectedUser, setSelectedUser] = useState<string>("");
+    const [userStats, setUserStats] = useState<any>(null);
+    const [userLoading, setUserLoading] = useState(false);
+    const [chartMetric, setChartMetric] = useState<"count" | "points" | "co2">("count");
 
     // Fetch dashboard data
     const fetchData = useCallback(async () => {
@@ -118,6 +136,32 @@ export default function AdminDashboard() {
         const interval = setInterval(fetchData, 30000);
         return () => clearInterval(interval);
     }, [fetchData]);
+
+    // Fetch users for report tab
+    useEffect(() => {
+        if (activeTab === "users") {
+            fetch("/api/admin/users")
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) setUsers(data.users);
+                })
+                .catch(err => console.error("Error fetching users:", err));
+        }
+    }, [activeTab]);
+
+    // Fetch specific user stats
+    useEffect(() => {
+        if (selectedUser) {
+            setUserLoading(true);
+            fetch(`/api/admin/users/${selectedUser}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) setUserStats(data);
+                })
+                .catch(err => console.error("Error fetching user stats:", err))
+                .finally(() => setUserLoading(false));
+        }
+    }, [selectedUser]);
 
     // Update bin status/fill level
     const updateBin = async (binId: string, updates: Partial<MapBin>) => {
@@ -179,6 +223,7 @@ export default function AdminDashboard() {
 
     const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
         { id: "overview", label: "Overview", icon: <Activity className="h-4 w-4" /> },
+        { id: "users", label: "User Reports", icon: <Users className="h-4 w-4" /> },
         { id: "bins", label: "Bin Management", icon: <Trash2 className="h-4 w-4" /> },
         { id: "routes", label: "Route Optimization", icon: <Route className="h-4 w-4" /> },
         { id: "alerts", label: "Alerts", icon: <Bell className="h-4 w-4" /> },
@@ -208,13 +253,7 @@ export default function AdminDashboard() {
                             </span>
                         </div>
                         <div className="flex items-center gap-3">
-                            <Link
-                                href="/smart-bin"
-                                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 transition-colors"
-                            >
-                                <Monitor className="h-4 w-4" />
-                                Smart Bin
-                            </Link>
+
                             <button
                                 onClick={fetchData}
                                 className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white"
@@ -363,6 +402,102 @@ export default function AdminDashboard() {
                                     <QuickStat label="Critical Alerts" value={stats.alerts.critical.toString()} critical />
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                )}
+
+
+
+
+                {/* User Reports Tab */}
+                {activeTab === "users" && (
+                    <div className="space-y-6">
+                        <div className="glass-card p-6">
+                            <h3 className="text-lg font-semibold text-white mb-4">User Activity Report</h3>
+
+                            {/* User Selector */}
+                            <div className="mb-8">
+                                <label className="block text-sm font-medium text-slate-400 mb-2">Select User by Email</label>
+                                <select
+                                    className="w-full max-w-md bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                                    value={selectedUser}
+                                    onChange={(e) => setSelectedUser(e.target.value)}
+                                >
+                                    <option value="">-- Select a User --</option>
+                                    {users.map(user => (
+                                        <option key={user.id} value={user.id}>
+                                            {user.email} - {user.total_points} pts
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {userLoading ? (
+                                <div className="flex justify-center py-12">
+                                    <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+                                </div>
+                            ) : selectedUser && userStats ? (
+                                <div className="space-y-6">
+                                    {/* User Stats Cards */}
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl">
+                                            <p className="text-sm text-emerald-400 mb-1">Total Points</p>
+                                            <p className="text-2xl font-bold text-white">{userStats.user.total_points}</p>
+                                        </div>
+                                        <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-xl">
+                                            <p className="text-sm text-blue-400 mb-1">Total Deposits</p>
+                                            <p className="text-2xl font-bold text-white">{userStats.stats.totalDeposits}</p>
+                                        </div>
+                                        <div className="bg-cyan-500/10 border border-cyan-500/20 p-4 rounded-xl">
+                                            <p className="text-sm text-cyan-400 mb-1">CO₂ Saved</p>
+                                            <p className="text-2xl font-bold text-white">{userStats.stats.co2Saved}g</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Transaction History Table */}
+                                    <div>
+                                        <h4 className="font-medium text-white mb-3">Recent Activity</h4>
+                                        <div className="overflow-hidden rounded-lg border border-white/10">
+                                            <table className="w-full">
+                                                <thead className="bg-white/5">
+                                                    <tr>
+                                                        <th className="text-left py-3 px-4 text-xs font-medium text-slate-400 uppercase">Date</th>
+                                                        <th className="text-left py-3 px-4 text-xs font-medium text-slate-400 uppercase">Item Type</th>
+                                                        <th className="text-left py-3 px-4 text-xs font-medium text-slate-400 uppercase">Weight</th>
+                                                        <th className="text-left py-3 px-4 text-xs font-medium text-slate-400 uppercase">Points</th>
+                                                        <th className="text-left py-3 px-4 text-xs font-medium text-slate-400 uppercase">CO₂ Saved</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-white/5">
+                                                    {userStats.stats.transactions.map((t: any) => (
+                                                        <tr key={t.id} className="hover:bg-white/5">
+                                                            <td className="py-3 px-4 text-sm text-slate-300">
+                                                                {new Date(t.created_at).toLocaleDateString()} {new Date(t.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm text-white capitalize">{t.item_type || 'Unknown'}</td>
+                                                            <td className="py-3 px-4 text-sm text-slate-400">{t.weight}g</td>
+                                                            <td className="py-3 px-4 text-sm text-emerald-400 font-medium">+{t.points_earned}</td>
+                                                            <td className="py-3 px-4 text-sm text-cyan-400">{t.co2_saved}g</td>
+                                                        </tr>
+                                                    ))}
+                                                    {userStats.stats.transactions.length === 0 && (
+                                                        <tr>
+                                                            <td colSpan={5} className="py-8 text-center text-slate-500">
+                                                                No activity found for this user.
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-center py-12 text-slate-500 border border-dashed border-white/10 rounded-xl">
+                                    <Users className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                                    <p>Select a user from the dropdown to view their detailed report.</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
