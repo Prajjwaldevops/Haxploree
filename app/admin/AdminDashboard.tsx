@@ -3,13 +3,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from "@react-google-maps/api";
+import Map, { Marker, Popup, NavigationControl } from "react-map-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
 import {
     Users,
     Trash2,
     Activity,
     TrendingUp,
-    TrendingDown,
     AlertTriangle,
     CheckCircle,
     XCircle,
@@ -19,7 +19,6 @@ import {
     Bell,
     LogOut,
     Wrench,
-    DollarSign,
     Recycle,
     Clock,
     X,
@@ -27,26 +26,25 @@ import {
     Monitor,
     Route,
     Search,
-    Filter,
-    Shield,
-    Wifi,
-    WifiOff,
+    Settings,
+    Power,
+    Truck,
+    Navigation,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { BIT_SINDRI_CENTER, getFillLevelColor, MapBin } from "@/lib/mapbox";
+
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 
 // Types
-interface Bin {
-    id: number;
-    name: string;
-    location: string;
-    address: string;
-    lat: number;
-    lng: number;
-    fillLevel: number;
-    status: "active" | "full" | "maintenance";
-    lastUpdated: string;
-    acceptedItems: string[];
+interface Stats {
+    users: { total: number; growth: number };
+    bins: { total: number; active: number; maintenance: number; full: number; avgFillLevel: number };
+    transactions: { total: number; growth: number; weekly: number };
+    points: { total: number; weekly: number };
+    environment: { co2Saved: number; treesEquivalent: number };
+    alerts: { critical: number; warning: number; bins: { id: string; name: string; fill_level: number }[] };
 }
 
 interface Alert {
@@ -54,1041 +52,639 @@ interface Alert {
     type: "critical" | "warning" | "info";
     title: string;
     message: string;
-    binId?: number;
+    binId?: string;
     timestamp: Date;
     dismissed: boolean;
 }
 
-// Mock data
-const mockBins: Bin[] = [
-    {
-        id: 1,
-        name: "Central Plaza Bin",
-        location: "Downtown",
-        address: "123 Main Street, Downtown",
-        lat: 28.6139,
-        lng: 77.209,
-        fillLevel: 78,
-        status: "active",
-        lastUpdated: "2 mins ago",
-        acceptedItems: ["Smartphones", "Tablets", "Batteries"],
-    },
-    {
-        id: 2,
-        name: "Tech Park Bin",
-        location: "IT Hub",
-        address: "456 IT Hub Road, Sector 5",
-        lat: 28.6229,
-        lng: 77.219,
-        fillLevel: 45,
-        status: "active",
-        lastUpdated: "5 mins ago",
-        acceptedItems: ["Laptops", "Monitors", "Keyboards"],
-    },
-    {
-        id: 3,
-        name: "University Bin",
-        location: "Campus",
-        address: "University Main Gate",
-        lat: 28.6039,
-        lng: 77.199,
-        fillLevel: 92,
-        status: "full",
-        lastUpdated: "1 min ago",
-        acceptedItems: ["All E-Waste Types"],
-    },
-    {
-        id: 4,
-        name: "Mall Entrance Bin",
-        location: "City Mall",
-        address: "City Mall, Ground Floor",
-        lat: 28.6189,
-        lng: 77.229,
-        fillLevel: 23,
-        status: "active",
-        lastUpdated: "10 mins ago",
-        acceptedItems: ["Small Electronics", "Cables"],
-    },
-    {
-        id: 5,
-        name: "Station Bin",
-        location: "Railway Station",
-        address: "Central Railway Station",
-        lat: 28.6089,
-        lng: 77.219,
-        fillLevel: 67,
-        status: "maintenance",
-        lastUpdated: "30 mins ago",
-        acceptedItems: ["Under Maintenance"],
-    },
-    {
-        id: 6,
-        name: "Hospital Complex Bin",
-        location: "Medical District",
-        address: "City Hospital Road",
-        lat: 28.6159,
-        lng: 77.239,
-        fillLevel: 55,
-        status: "active",
-        lastUpdated: "7 mins ago",
-        acceptedItems: ["Medical Devices", "Electronics"],
-    },
-];
-
-const mockAlerts: Alert[] = [
-    {
-        id: 1,
-        type: "critical",
-        title: "Bin Full - Immediate Pickup Required",
-        message: "University Bin at Campus has reached 92% capacity",
-        binId: 3,
-        timestamp: new Date(Date.now() - 5 * 60 * 1000),
-        dismissed: false,
-    },
-    {
-        id: 2,
-        type: "warning",
-        title: "Bin Under Maintenance",
-        message: "Station Bin at Railway Station is offline for scheduled maintenance",
-        binId: 5,
-        timestamp: new Date(Date.now() - 30 * 60 * 1000),
-        dismissed: false,
-    },
-    {
-        id: 3,
-        type: "warning",
-        title: "High Fill Level Warning",
-        message: "Central Plaza Bin approaching capacity (78%)",
-        binId: 1,
-        timestamp: new Date(Date.now() - 15 * 60 * 1000),
-        dismissed: false,
-    },
-    {
-        id: 4,
-        type: "info",
-        title: "Scheduled Pickup Complete",
-        message: "Tech Park Bin pickup completed successfully",
-        binId: 2,
-        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-        dismissed: false,
-    },
-];
-
-const mockStats = {
-    totalUsers: 10432,
-    totalBins: 247,
-    totalTransactions: 52891,
-    totalWasteCollected: 15420,
-    estimatedValue: 245800,
-    activeToday: 342,
-    depositsToday: 156,
-    pointsDistributed: 1250000,
-    weeklyGrowth: 12.5,
-    userEngagement: 78.3,
-};
-
-// Map configuration
-const mapContainerStyle = { width: "100%", height: "100%" };
-const defaultCenter = { lat: 28.6139, lng: 77.209 };
-const mapOptions = {
-    disableDefaultUI: true,
-    zoomControl: true,
-    styles: [
-        { elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
-        { elementType: "labels.text.fill", stylers: [{ color: "#8ec3b9" }] },
-        { elementType: "labels.text.stroke", stylers: [{ color: "#1a3646" }] },
-        { featureType: "road", elementType: "geometry", stylers: [{ color: "#304a7d" }] },
-        { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#255763" }] },
-        { featureType: "water", elementType: "geometry", stylers: [{ color: "#0e1626" }] },
-        { featureType: "poi", elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
-    ],
-};
+type Tab = "overview" | "bins" | "routes" | "alerts";
 
 export default function AdminDashboard() {
-    const [bins, setBins] = useState(mockBins);
-    const [alerts, setAlerts] = useState(mockAlerts);
-    const [selectedBin, setSelectedBin] = useState<Bin | null>(null);
-    const [isRefreshing, setIsRefreshing] = useState(false);
-    const [activeTab, setActiveTab] = useState<"overview" | "bins" | "alerts" | "analytics" | "routes">("overview");
-    const [searchQuery, setSearchQuery] = useState("");
-    const [statusFilter, setStatusFilter] = useState<"all" | "active" | "full" | "maintenance">("all");
-    const [isOnline, setIsOnline] = useState(true);
     const router = useRouter();
-
-    const { isLoaded, loadError } = useJsApiLoader({
-        googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "",
+    const [activeTab, setActiveTab] = useState<Tab>("overview");
+    const [isLoading, setIsLoading] = useState(true);
+    const [stats, setStats] = useState<Stats | null>(null);
+    const [bins, setBins] = useState<MapBin[]>([]);
+    const [selectedBin, setSelectedBin] = useState<MapBin | null>(null);
+    const [alerts, setAlerts] = useState<Alert[]>([]);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [isUpdating, setIsUpdating] = useState<string | null>(null);
+    const [viewState, setViewState] = useState({
+        latitude: BIT_SINDRI_CENTER.latitude,
+        longitude: BIT_SINDRI_CENTER.longitude,
+        zoom: 12,
     });
 
-    const handleRefresh = async () => {
-        setIsRefreshing(true);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        setIsRefreshing(false);
+    // Fetch dashboard data
+    const fetchData = useCallback(async () => {
+        try {
+            setIsLoading(true);
+            const [statsRes, binsRes] = await Promise.all([
+                fetch("/api/admin/stats"),
+                fetch("/api/admin/bins"),
+            ]);
+
+            const statsData = await statsRes.json();
+            const binsData = await binsRes.json();
+
+            if (statsData.success) {
+                setStats(statsData.stats);
+                // Generate alerts from high-fill bins
+                const newAlerts: Alert[] = statsData.stats.alerts.bins.map((bin: { id: string; name: string; fill_level: number }, i: number) => ({
+                    id: i + 1,
+                    type: bin.fill_level >= 90 ? "critical" : "warning",
+                    title: bin.fill_level >= 90 ? "Bin Full - Pickup Required" : "High Fill Level",
+                    message: `${bin.name} at ${bin.fill_level}% capacity`,
+                    binId: bin.id,
+                    timestamp: new Date(),
+                    dismissed: false,
+                }));
+                setAlerts(newAlerts);
+            }
+
+            if (binsData.success) {
+                setBins(binsData.bins);
+            }
+        } catch (error) {
+            console.error("Error fetching dashboard data:", error);
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchData();
+        // Auto-refresh every 30 seconds
+        const interval = setInterval(fetchData, 30000);
+        return () => clearInterval(interval);
+    }, [fetchData]);
+
+    // Update bin status/fill level
+    const updateBin = async (binId: string, updates: Partial<MapBin>) => {
+        setIsUpdating(binId);
+        try {
+            const response = await fetch("/api/admin/bins", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: binId, ...updates }),
+            });
+
+            if (response.ok) {
+                setBins(prev => prev.map(b => b.id === binId ? { ...b, ...updates } : b));
+            }
+        } catch (error) {
+            console.error("Error updating bin:", error);
+        } finally {
+            setIsUpdating(null);
+        }
+    };
+
+    // Empty bin
+    const emptyBin = async (binId: string) => {
+        setIsUpdating(binId);
+        try {
+            await fetch("/api/admin/bins", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: binId, action: "empty" }),
+            });
+            await fetchData();
+        } catch (error) {
+            console.error("Error emptying bin:", error);
+        } finally {
+            setIsUpdating(null);
+        }
     };
 
     const handleLogout = () => {
-        localStorage.removeItem("adminSession");
+        document.cookie = "admin_session=; path=/; max-age=0";
         router.push("/admin-login");
     };
 
-    const dismissAlert = (alertId: number) => {
-        setAlerts((prev) => prev.map((a) => (a.id === alertId ? { ...a, dismissed: true } : a)));
+    const dismissAlert = (id: number) => {
+        setAlerts(prev => prev.map(a => a.id === id ? { ...a, dismissed: true } : a));
     };
 
-    const getMarkerIcon = (bin: Bin) => {
-        let color = "#10b981";
-        if (bin.status === "full") color = "#ef4444";
-        else if (bin.status === "maintenance") color = "#f59e0b";
-        else if (bin.fillLevel > 70) color = "#f59e0b";
+    const filteredBins = bins.filter(bin =>
+        bin.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        bin.bin_code.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
-        return {
-            path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
-            fillColor: color,
-            fillOpacity: 1,
-            strokeWeight: 2,
-            strokeColor: "#ffffff",
-            scale: 2,
-            anchor: { x: 12, y: 24 } as google.maps.Point,
-        };
+    const getMarkerColor = (bin: MapBin) => {
+        if (!bin.is_operational) return "#6b7280";
+        if (bin.fill_level >= 90) return "#ef4444";
+        if (bin.fill_level >= 70) return "#f59e0b";
+        return "#10b981";
     };
 
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case "active": return "text-emerald-400 bg-emerald-500/20";
-            case "full": return "text-red-400 bg-red-500/20";
-            case "maintenance": return "text-yellow-400 bg-yellow-500/20";
-            default: return "text-slate-400 bg-slate-500/20";
-        }
-    };
+    const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+        { id: "overview", label: "Overview", icon: <Activity className="h-4 w-4" /> },
+        { id: "bins", label: "Bin Management", icon: <Trash2 className="h-4 w-4" /> },
+        { id: "routes", label: "Route Optimization", icon: <Route className="h-4 w-4" /> },
+        { id: "alerts", label: "Alerts", icon: <Bell className="h-4 w-4" /> },
+    ];
 
-    const getStatusIcon = (status: string) => {
-        switch (status) {
-            case "active": return CheckCircle;
-            case "full": return XCircle;
-            case "maintenance": return Wrench;
-            default: return Activity;
-        }
-    };
-
-    const getFillLevelColor = (level: number) => {
-        if (level >= 80) return "bg-red-500";
-        if (level >= 60) return "bg-yellow-500";
-        return "bg-emerald-500";
-    };
-
-    const getAlertColor = (type: string) => {
-        switch (type) {
-            case "critical": return "border-red-500 bg-red-500/10";
-            case "warning": return "border-yellow-500 bg-yellow-500/10";
-            case "info": return "border-blue-500 bg-blue-500/10";
-            default: return "border-slate-500 bg-slate-500/10";
-        }
-    };
-
-    const getAlertIcon = (type: string) => {
-        switch (type) {
-            case "critical": return <XCircle className="h-5 w-5 text-red-400" />;
-            case "warning": return <AlertTriangle className="h-5 w-5 text-yellow-400" />;
-            case "info": return <CheckCircle className="h-5 w-5 text-blue-400" />;
-            default: return <Bell className="h-5 w-5 text-slate-400" />;
-        }
-    };
-
-    const activeAlerts = alerts.filter((a) => !a.dismissed);
-    const criticalCount = activeAlerts.filter((a) => a.type === "critical").length;
+    if (isLoading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                    <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+                    <p className="text-slate-400">Loading dashboard...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <main className="min-h-screen">
+        <div className="min-h-screen">
             {/* Header */}
-            <header className="sticky top-0 z-50 glass-panel border-b border-white/10">
-                <div className="container mx-auto px-4 lg:px-8 py-4">
+            <header className="sticky top-0 z-50 glass-card border-b border-white/10">
+                <div className="container mx-auto px-4 py-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30">
-                                    <Recycle className="h-6 w-6 text-emerald-400" />
-                                </div>
-                                <div>
-                                    <h1 className="text-xl font-bold text-white">Admin Command Center</h1>
-                                    <p className="text-xs text-slate-400">BinSmart Network Dashboard</p>
-                                </div>
-                            </div>
+                            <h1 className="text-xl font-bold text-white">Admin Dashboard</h1>
+                            <span className="px-2 py-1 text-xs bg-emerald-500/20 text-emerald-400 rounded">
+                                BIT Sindri
+                            </span>
                         </div>
-
-                        <div className="flex items-center gap-4">
-                            {/* Alert Badge */}
-                            {criticalCount > 0 && (
-                                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/20 border border-red-500/30">
-                                    <span className="relative flex h-2 w-2">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
-                                    </span>
-                                    <span className="text-red-400 text-sm font-medium">{criticalCount} Critical</span>
-                                </div>
-                            )}
-
-                            {/* Smart Bin Interface */}
+                        <div className="flex items-center gap-3">
                             <Link
                                 href="/smart-bin"
-                                target="_blank"
-                                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-500/20 to-cyan-500/20 hover:from-emerald-500/30 hover:to-cyan-500/30 border border-emerald-500/30 text-emerald-400 transition-all"
+                                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 transition-colors"
                             >
                                 <Monitor className="h-4 w-4" />
-                                <span className="hidden sm:inline">Smart Bin</span>
+                                Smart Bin
                             </Link>
-
-                            {/* Refresh */}
                             <button
-                                onClick={handleRefresh}
-                                className={cn(
-                                    "p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors",
-                                    isRefreshing && "opacity-50 pointer-events-none"
-                                )}
+                                onClick={fetchData}
+                                className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white"
                             >
-                                <RefreshCw className={cn("h-5 w-5", isRefreshing && "animate-spin")} />
+                                <RefreshCw className={cn("h-5 w-5", isLoading && "animate-spin")} />
                             </button>
-
-                            {/* Logout */}
                             <button
                                 onClick={handleLogout}
-                                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400 transition-colors"
+                                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400"
                             >
                                 <LogOut className="h-4 w-4" />
-                                <span className="hidden sm:inline">Logout</span>
+                                Logout
                             </button>
                         </div>
-                    </div>
-
-                    {/* Tab Navigation */}
-                    <div className="flex gap-2 mt-4 overflow-x-auto pb-2">
-                        {[
-                            { id: "overview", label: "Overview", icon: Activity },
-                            { id: "bins", label: "Bin Monitoring", icon: Trash2 },
-                            { id: "alerts", label: "Alerts", icon: Bell, badge: activeAlerts.length },
-                            { id: "analytics", label: "Analytics", icon: TrendingUp },
-                            { id: "routes", label: "Route Optimization", icon: Route },
-                        ].map((tab) => (
-                            <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id as typeof activeTab)}
-                                className={cn(
-                                    "flex items-center gap-2 px-4 py-2 rounded-lg transition-all whitespace-nowrap",
-                                    activeTab === tab.id
-                                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                        : "text-slate-400 hover:text-white hover:bg-white/10"
-                                )}
-                            >
-                                <tab.icon className="h-4 w-4" />
-                                {tab.label}
-                                {tab.badge !== undefined && tab.badge > 0 && (
-                                    <span className="px-2 py-0.5 rounded-full bg-red-500 text-white text-xs font-medium">
-                                        {tab.badge}
-                                    </span>
-                                )}
-                            </button>
-                        ))}
                     </div>
                 </div>
             </header>
 
-            <div className="container mx-auto px-4 lg:px-8 py-6">
-                {/* Overview Tab */}
-                {activeTab === "overview" && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="space-y-6"
-                    >
-                        {/* Quick Stats */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <StatCard
-                                icon={Trash2}
-                                label="Active Bins"
-                                value={mockStats.totalBins}
-                                color="emerald"
-                            />
-                            <StatCard
-                                icon={Users}
-                                label="Active Users Today"
-                                value={mockStats.activeToday}
-                                trend={mockStats.weeklyGrowth}
-                                color="cyan"
-                            />
-                            <StatCard
-                                icon={Recycle}
-                                label="Waste Collected"
-                                value={`${(mockStats.totalWasteCollected / 1000).toFixed(1)}T`}
-                                suffix="kg"
-                                color="purple"
-                            />
-                            <StatCard
-                                icon={DollarSign}
-                                label="Estimated Value"
-                                value={`$${(mockStats.estimatedValue / 1000).toFixed(1)}K`}
-                                color="yellow"
-                            />
-                        </div>
-
-                        {/* Map & Recent Alerts */}
-                        <div className="grid lg:grid-cols-3 gap-6">
-                            {/* Map */}
-                            <div className="lg:col-span-2 glass-card overflow-hidden" style={{ height: "450px" }}>
-                                <div className="p-4 border-b border-white/10">
-                                    <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                                        <MapPin className="h-5 w-5 text-emerald-400" />
-                                        Geographic Overview
-                                    </h2>
-                                </div>
-                                <div className="h-[calc(100%-60px)]">
-                                    {loadError ? (
-                                        <div className="h-full flex items-center justify-center">
-                                            <p className="text-slate-400">Failed to load map</p>
-                                        </div>
-                                    ) : !isLoaded ? (
-                                        <div className="h-full flex items-center justify-center">
-                                            <Loader2 className="h-8 w-8 text-emerald-400 animate-spin" />
-                                        </div>
-                                    ) : (
-                                        <GoogleMap
-                                            mapContainerStyle={mapContainerStyle}
-                                            center={defaultCenter}
-                                            zoom={12}
-                                            options={mapOptions}
-                                        >
-                                            {bins.map((bin) => (
-                                                <Marker
-                                                    key={bin.id}
-                                                    position={{ lat: bin.lat, lng: bin.lng }}
-                                                    icon={getMarkerIcon(bin)}
-                                                    onClick={() => setSelectedBin(bin)}
-                                                />
-                                            ))}
-
-                                            {selectedBin && (
-                                                <InfoWindow
-                                                    position={{ lat: selectedBin.lat, lng: selectedBin.lng }}
-                                                    onCloseClick={() => setSelectedBin(null)}
-                                                >
-                                                    <div className="p-2 min-w-[200px]">
-                                                        <h3 className="font-semibold text-slate-900 mb-1">
-                                                            {selectedBin.name}
-                                                        </h3>
-                                                        <p className="text-sm text-slate-600 mb-2">
-                                                            {selectedBin.address}
-                                                        </p>
-                                                        <div className="flex items-center gap-2 mb-2">
-                                                            <span className="text-xs text-slate-500">Status:</span>
-                                                            <span className={cn(
-                                                                "px-2 py-0.5 rounded-full text-xs capitalize",
-                                                                selectedBin.status === "active" ? "bg-emerald-100 text-emerald-700" :
-                                                                    selectedBin.status === "full" ? "bg-red-100 text-red-700" :
-                                                                        "bg-yellow-100 text-yellow-700"
-                                                            )}>
-                                                                {selectedBin.status}
-                                                            </span>
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-xs text-slate-500">Fill:</span>
-                                                            <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
-                                                                <div
-                                                                    className={cn("h-full rounded-full", getFillLevelColor(selectedBin.fillLevel))}
-                                                                    style={{ width: `${selectedBin.fillLevel}%` }}
-                                                                />
-                                                            </div>
-                                                            <span className="text-xs font-medium text-slate-700">
-                                                                {selectedBin.fillLevel}%
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                </InfoWindow>
-                                            )}
-                                        </GoogleMap>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Recent Alerts */}
-                            <div className="glass-card overflow-hidden">
-                                <div className="p-4 border-b border-white/10 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                                        <Bell className="h-5 w-5 text-red-400" />
-                                        Active Alerts
-                                    </h2>
-                                    <span className="px-2 py-1 rounded-full bg-red-500/20 text-red-400 text-xs">
-                                        {activeAlerts.length}
-                                    </span>
-                                </div>
-                                <div className="p-4 space-y-3 max-h-[370px] overflow-y-auto">
-                                    <AnimatePresence>
-                                        {activeAlerts.length === 0 ? (
-                                            <div className="text-center py-8 text-slate-400">
-                                                <CheckCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                                                <p>No active alerts</p>
-                                            </div>
-                                        ) : (
-                                            activeAlerts.map((alert) => (
-                                                <motion.div
-                                                    key={alert.id}
-                                                    initial={{ opacity: 0, x: -20 }}
-                                                    animate={{ opacity: 1, x: 0 }}
-                                                    exit={{ opacity: 0, x: 20 }}
-                                                    className={cn(
-                                                        "p-3 rounded-lg border-l-4",
-                                                        getAlertColor(alert.type)
-                                                    )}
-                                                >
-                                                    <div className="flex items-start gap-3">
-                                                        {getAlertIcon(alert.type)}
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="font-medium text-white text-sm truncate">
-                                                                {alert.title}
-                                                            </p>
-                                                            <p className="text-xs text-slate-400 mt-0.5">
-                                                                {alert.message}
-                                                            </p>
-                                                        </div>
-                                                        <button
-                                                            onClick={() => dismissAlert(alert.id)}
-                                                            className="p-1 hover:bg-white/10 rounded"
-                                                        >
-                                                            <X className="h-4 w-4 text-slate-400" />
-                                                        </button>
-                                                    </div>
-                                                </motion.div>
-                                            ))
-                                        )}
-                                    </AnimatePresence>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Map Legend */}
-                        <div className="glass-card p-4">
-                            <h3 className="text-sm font-medium text-slate-400 mb-3">Map Legend</h3>
-                            <div className="flex flex-wrap gap-6">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-4 h-4 rounded-full bg-emerald-500" />
-                                    <span className="text-sm text-slate-300">Active (Low Fill)</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-4 h-4 rounded-full bg-yellow-500" />
-                                    <span className="text-sm text-slate-300">Warning (High Fill / Maintenance)</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-4 h-4 rounded-full bg-red-500" />
-                                    <span className="text-sm text-slate-300">Critical (Full)</span>
-                                </div>
-                            </div>
-                        </div>
-                    </motion.div>
-                )}
-
-                {/* Bins Tab */}
-                {activeTab === "bins" && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="space-y-6"
-                    >
-                        <div className="glass-card overflow-hidden">
-                            <div className="p-4 border-b border-white/10 flex items-center justify-between">
-                                <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                                    <span className="relative flex h-3 w-3">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
-                                    </span>
-                                    Real-Time Bin Monitoring
-                                </h2>
-                                <span className="text-sm text-slate-400">
-                                    {bins.length} bins total
+            <div className="container mx-auto px-4 py-6">
+                {/* Tabs */}
+                <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+                    {tabs.map((tab) => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={cn(
+                                "flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap",
+                                activeTab === tab.id
+                                    ? "bg-emerald-500 text-white"
+                                    : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
+                            )}
+                        >
+                            {tab.icon}
+                            {tab.label}
+                            {tab.id === "alerts" && alerts.filter(a => !a.dismissed).length > 0 && (
+                                <span className="ml-1 px-1.5 py-0.5 text-xs bg-red-500 text-white rounded-full">
+                                    {alerts.filter(a => !a.dismissed).length}
                                 </span>
-                            </div>
-                            <div className="overflow-x-auto">
-                                <table className="w-full">
-                                    <thead>
-                                        <tr className="border-b border-white/10">
-                                            <th className="text-left text-sm font-medium text-slate-400 px-6 py-4">Bin Name</th>
-                                            <th className="text-left text-sm font-medium text-slate-400 px-6 py-4">Location</th>
-                                            <th className="text-left text-sm font-medium text-slate-400 px-6 py-4">Fill Level</th>
-                                            <th className="text-left text-sm font-medium text-slate-400 px-6 py-4">Status</th>
-                                            <th className="text-left text-sm font-medium text-slate-400 px-6 py-4">Last Updated</th>
-                                            <th className="text-left text-sm font-medium text-slate-400 px-6 py-4">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {bins.map((bin) => {
-                                            const StatusIcon = getStatusIcon(bin.status);
-                                            return (
-                                                <tr
-                                                    key={bin.id}
-                                                    className="border-b border-white/5 hover:bg-white/5 transition-colors"
-                                                >
-                                                    <td className="px-6 py-4">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="p-2 rounded-lg bg-slate-800">
-                                                                <Trash2 className="h-4 w-4 text-emerald-400" />
-                                                            </div>
-                                                            <span className="font-medium text-white">{bin.name}</span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 text-slate-300">
-                                                        <div className="flex items-center gap-2">
-                                                            <MapPin className="h-4 w-4 text-slate-500" />
-                                                            {bin.location}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="flex-1 max-w-[120px] h-3 bg-slate-700 rounded-full overflow-hidden">
-                                                                <motion.div
-                                                                    initial={{ width: 0 }}
-                                                                    animate={{ width: `${bin.fillLevel}%` }}
-                                                                    transition={{ duration: 1, ease: "easeOut" }}
-                                                                    className={cn("h-full rounded-full", getFillLevelColor(bin.fillLevel))}
-                                                                />
-                                                            </div>
-                                                            <span className="text-sm text-slate-300 font-medium">
-                                                                {bin.fillLevel}%
-                                                            </span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4">
-                                                        <span className={cn(
-                                                            "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium capitalize",
-                                                            getStatusColor(bin.status)
-                                                        )}>
-                                                            <StatusIcon className="h-3 w-3" />
-                                                            {bin.status}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-6 py-4 text-slate-400">
-                                                        <div className="flex items-center gap-2">
-                                                            <Clock className="h-4 w-4" />
-                                                            {bin.lastUpdated}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4">
-                                                        <div className="flex items-center gap-2">
-                                                            <button className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
-                                                                View
-                                                            </button>
-                                                            <span className="text-slate-600">|</span>
-                                                            <button className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors">
-                                                                Schedule Pickup
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </motion.div>
-                )}
+                            )}
+                        </button>
+                    ))}
+                </div>
 
-                {/* Alerts Tab */}
-                {activeTab === "alerts" && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="space-y-6"
-                    >
-                        <div className="grid md:grid-cols-3 gap-4">
-                            <div className="glass-card p-4 border-l-4 border-red-500">
-                                <div className="flex items-center gap-3">
-                                    <XCircle className="h-8 w-8 text-red-400" />
-                                    <div>
-                                        <p className="text-2xl font-bold text-white">{criticalCount}</p>
-                                        <p className="text-sm text-slate-400">Critical Alerts</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="glass-card p-4 border-l-4 border-yellow-500">
-                                <div className="flex items-center gap-3">
-                                    <AlertTriangle className="h-8 w-8 text-yellow-400" />
-                                    <div>
-                                        <p className="text-2xl font-bold text-white">
-                                            {activeAlerts.filter((a) => a.type === "warning").length}
-                                        </p>
-                                        <p className="text-sm text-slate-400">Warnings</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="glass-card p-4 border-l-4 border-blue-500">
-                                <div className="flex items-center gap-3">
-                                    <Bell className="h-8 w-8 text-blue-400" />
-                                    <div>
-                                        <p className="text-2xl font-bold text-white">
-                                            {activeAlerts.filter((a) => a.type === "info").length}
-                                        </p>
-                                        <p className="text-sm text-slate-400">Informational</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="glass-card overflow-hidden">
-                            <div className="p-4 border-b border-white/10">
-                                <h2 className="text-lg font-semibold text-white">All Alerts</h2>
-                            </div>
-                            <div className="p-4 space-y-4">
-                                <AnimatePresence>
-                                    {alerts.map((alert) => (
-                                        <motion.div
-                                            key={alert.id}
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: alert.dismissed ? 0.5 : 1, y: 0 }}
-                                            className={cn(
-                                                "p-4 rounded-lg border-l-4 flex items-start gap-4",
-                                                getAlertColor(alert.type),
-                                                alert.dismissed && "opacity-50"
-                                            )}
-                                        >
-                                            {getAlertIcon(alert.type)}
-                                            <div className="flex-1">
-                                                <div className="flex items-start justify-between gap-4">
-                                                    <div>
-                                                        <p className="font-medium text-white">{alert.title}</p>
-                                                        <p className="text-sm text-slate-400 mt-1">{alert.message}</p>
-                                                    </div>
-                                                    {!alert.dismissed && (
-                                                        <button
-                                                            onClick={() => dismissAlert(alert.id)}
-                                                            className="px-3 py-1 rounded bg-white/10 hover:bg-white/20 text-sm text-white transition-colors"
-                                                        >
-                                                            Dismiss
-                                                        </button>
-                                                    )}
-                                                </div>
-                                                <p className="text-xs text-slate-500 mt-2">
-                                                    {new Date(alert.timestamp).toLocaleString()}
-                                                </p>
-                                            </div>
-                                        </motion.div>
-                                    ))}
-                                </AnimatePresence>
-                            </div>
-                        </div>
-                    </motion.div>
-                )}
-
-                {/* Analytics Tab */}
-                {activeTab === "analytics" && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="space-y-6"
-                    >
-                        {/* Main Stats */}
+                {/* Overview Tab */}
+                {activeTab === "overview" && stats && (
+                    <div className="space-y-6">
+                        {/* Stats Grid */}
                         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                             <StatCard
-                                icon={Recycle}
-                                label="Total Waste Collected"
-                                value={`${(mockStats.totalWasteCollected).toLocaleString()} kg`}
-                                trend={8.2}
+                                title="Total Users"
+                                value={stats.users.total.toLocaleString()}
+                                icon={<Users className="h-5 w-5" />}
+                                trend={`+${stats.users.growth}%`}
                                 color="emerald"
                             />
                             <StatCard
-                                icon={DollarSign}
-                                label="Estimated Recycling Value"
-                                value={`$${mockStats.estimatedValue.toLocaleString()}`}
-                                trend={12.5}
-                                color="yellow"
+                                title="Active Bins"
+                                value={`${stats.bins.active}/${stats.bins.total}`}
+                                icon={<Trash2 className="h-5 w-5" />}
+                                subtitle={`${stats.bins.maintenance} maintenance`}
+                                color="blue"
                             />
                             <StatCard
-                                icon={Users}
-                                label="Total Registered Users"
-                                value={mockStats.totalUsers.toLocaleString()}
-                                trend={5.3}
-                                color="cyan"
-                            />
-                            <StatCard
-                                icon={Activity}
-                                label="Total Transactions"
-                                value={mockStats.totalTransactions.toLocaleString()}
-                                trend={15.7}
+                                title="Total Deposits"
+                                value={stats.transactions.total.toLocaleString()}
+                                icon={<Recycle className="h-5 w-5" />}
+                                trend={`+${stats.transactions.growth}%`}
                                 color="purple"
                             />
+                            <StatCard
+                                title="CO₂ Saved"
+                                value={`${(stats.environment.co2Saved / 1000).toFixed(1)}kg`}
+                                icon={<Activity className="h-5 w-5" />}
+                                subtitle={`≈ ${stats.environment.treesEquivalent} trees`}
+                                color="cyan"
+                            />
                         </div>
 
-                        {/* Engagement Stats */}
-                        <div className="grid md:grid-cols-2 gap-6">
-                            <div className="glass-card p-6">
-                                <h3 className="text-lg font-semibold text-white mb-4">User Engagement</h3>
-                                <div className="space-y-4">
-                                    <div>
-                                        <div className="flex justify-between text-sm mb-2">
-                                            <span className="text-slate-400">Daily Active Users</span>
-                                            <span className="text-white font-medium">{mockStats.activeToday}</span>
-                                        </div>
-                                        <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
-                                            <motion.div
-                                                initial={{ width: 0 }}
-                                                animate={{ width: `${mockStats.userEngagement}%` }}
-                                                transition={{ duration: 1, ease: "easeOut" }}
-                                                className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-full"
-                                            />
-                                        </div>
-                                        <p className="text-xs text-slate-500 mt-1">{mockStats.userEngagement}% engagement rate</p>
+                        {/* Map and Quick Stats */}
+                        <div className="grid lg:grid-cols-3 gap-6">
+                            {/* Map */}
+                            <div className="lg:col-span-2 glass-card overflow-hidden" style={{ height: "400px" }}>
+                                {MAPBOX_TOKEN ? (
+                                    <Map
+                                        {...viewState}
+                                        onMove={(evt) => setViewState(evt.viewState)}
+                                        style={{ width: "100%", height: "100%" }}
+                                        mapStyle="mapbox://styles/mapbox/dark-v11"
+                                        mapboxAccessToken={MAPBOX_TOKEN}
+                                    >
+                                        <NavigationControl position="top-right" />
+                                        {bins.map((bin) => (
+                                            <Marker
+                                                key={bin.id}
+                                                latitude={bin.latitude}
+                                                longitude={bin.longitude}
+                                                anchor="bottom"
+                                                onClick={() => setSelectedBin(bin)}
+                                            >
+                                                <div style={{ color: getMarkerColor(bin) }}>
+                                                    <Trash2 className="h-6 w-6 cursor-pointer" fill="currentColor" />
+                                                </div>
+                                            </Marker>
+                                        ))}
+                                        {selectedBin && (
+                                            <Popup
+                                                latitude={selectedBin.latitude}
+                                                longitude={selectedBin.longitude}
+                                                anchor="top"
+                                                onClose={() => setSelectedBin(null)}
+                                            >
+                                                <div className="p-2">
+                                                    <h3 className="font-semibold text-gray-900">{selectedBin.name}</h3>
+                                                    <p className="text-sm text-gray-600">{selectedBin.bin_code}</p>
+                                                    <div className="mt-2 flex items-center gap-2">
+                                                        <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                            <div
+                                                                className="h-full rounded-full"
+                                                                style={{
+                                                                    width: `${selectedBin.fill_level}%`,
+                                                                    backgroundColor: getFillLevelColor(selectedBin.fill_level),
+                                                                }}
+                                                            />
+                                                        </div>
+                                                        <span className="text-sm font-medium">{selectedBin.fill_level}%</span>
+                                                    </div>
+                                                </div>
+                                            </Popup>
+                                        )}
+                                    </Map>
+                                ) : (
+                                    <div className="h-full flex items-center justify-center text-slate-400">
+                                        Mapbox token not configured
                                     </div>
-                                    <div>
-                                        <div className="flex justify-between text-sm mb-2">
-                                            <span className="text-slate-400">Deposits Today</span>
-                                            <span className="text-white font-medium">{mockStats.depositsToday}</span>
-                                        </div>
-                                        <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
-                                            <motion.div
-                                                initial={{ width: 0 }}
-                                                animate={{ width: "62%" }}
-                                                transition={{ duration: 1, ease: "easeOut", delay: 0.2 }}
-                                                className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full"
-                                            />
-                                        </div>
-                                        <p className="text-xs text-slate-500 mt-1">62% of daily target</p>
-                                    </div>
-                                    <div>
-                                        <div className="flex justify-between text-sm mb-2">
-                                            <span className="text-slate-400">Points Distributed</span>
-                                            <span className="text-white font-medium">{(mockStats.pointsDistributed / 1000).toFixed(0)}K</span>
-                                        </div>
-                                        <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
-                                            <motion.div
-                                                initial={{ width: 0 }}
-                                                animate={{ width: "85%" }}
-                                                transition={{ duration: 1, ease: "easeOut", delay: 0.4 }}
-                                                className="h-full bg-gradient-to-r from-yellow-500 to-orange-500 rounded-full"
-                                            />
-                                        </div>
-                                        <p className="text-xs text-slate-500 mt-1">85% of monthly budget</p>
-                                    </div>
-                                </div>
+                                )}
                             </div>
 
-                            <div className="glass-card p-6">
-                                <h3 className="text-lg font-semibold text-white mb-4">Weekly Performance</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="p-4 rounded-xl bg-white/5">
-                                        <TrendingUp className="h-8 w-8 text-emerald-400 mb-2" />
-                                        <p className="text-2xl font-bold text-white">+{mockStats.weeklyGrowth}%</p>
-                                        <p className="text-sm text-slate-400">User Growth</p>
-                                    </div>
-                                    <div className="p-4 rounded-xl bg-white/5">
-                                        <Coins className="h-8 w-8 text-yellow-400 mb-2" />
-                                        <p className="text-2xl font-bold text-white">2.4K</p>
-                                        <p className="text-sm text-slate-400">New Deposits</p>
-                                    </div>
-                                    <div className="p-4 rounded-xl bg-white/5">
-                                        <Trash2 className="h-8 w-8 text-cyan-400 mb-2" />
-                                        <p className="text-2xl font-bold text-white">847 kg</p>
-                                        <p className="text-sm text-slate-400">Waste This Week</p>
-                                    </div>
-                                    <div className="p-4 rounded-xl bg-white/5">
-                                        <Activity className="h-8 w-8 text-purple-400 mb-2" />
-                                        <p className="text-2xl font-bold text-white">98.5%</p>
-                                        <p className="text-sm text-slate-400">Bin Uptime</p>
-                                    </div>
+                            {/* Quick Stats */}
+                            <div className="glass-card p-6 space-y-4">
+                                <h3 className="text-lg font-semibold text-white">Quick Stats</h3>
+                                <div className="space-y-3">
+                                    <QuickStat label="Avg Fill Level" value={`${stats.bins.avgFillLevel}%`} />
+                                    <QuickStat label="Points Distributed" value={stats.points.total.toLocaleString()} />
+                                    <QuickStat label="Weekly Deposits" value={stats.transactions.weekly.toString()} />
+                                    <QuickStat label="Weekly Points" value={stats.points.weekly.toLocaleString()} />
+                                    <QuickStat label="Critical Alerts" value={stats.alerts.critical.toString()} critical />
                                 </div>
                             </div>
                         </div>
-                    </motion.div>
+                    </div>
                 )}
 
-                {/* ROUTE OPTIMIZATION TAB */}
-                {activeTab === "routes" && (
-                    <motion.div
-                        key="routes"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        className="space-y-6"
-                    >
-                        {/* Connection & Privacy Status */}
-                        <div className="flex flex-wrap gap-4">
-                            <div className={cn(
-                                "flex items-center gap-2 px-4 py-2 rounded-full text-sm",
-                                isOnline ? "bg-emerald-500/20 text-emerald-400" : "bg-yellow-500/20 text-yellow-400"
-                            )}>
-                                {isOnline ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
-                                {isOnline ? "Live Data Connected" : "Using Cached Data"}
-                            </div>
-                            <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-cyan-500/20 text-cyan-400 text-sm">
-                                <Shield className="h-4 w-4" />
-                                Data Encrypted & Secure
+                {/* Bin Management Tab */}
+                {activeTab === "bins" && (
+                    <div className="space-y-6">
+                        {/* Search */}
+                        <div className="flex gap-4">
+                            <div className="flex-1 relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                                <input
+                                    type="text"
+                                    placeholder="Search bins..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                                />
                             </div>
                         </div>
 
-                        {/* Route Controls */}
-                        <div className="glass-card p-6">
-                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-                                <div>
-                                    <h3 className="text-lg font-semibold text-white">Collection Route Optimizer</h3>
-                                    <p className="text-sm text-slate-400">AI-optimized pickup routes based on fill levels and priority</p>
+                        {/* Bins Grid */}
+                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {filteredBins.map((bin) => (
+                                <div key={bin.id} className="glass-card p-4 space-y-3">
+                                    <div className="flex items-start justify-between">
+                                        <div>
+                                            <h3 className="font-semibold text-white">{bin.name}</h3>
+                                            <p className="text-xs text-slate-400">{bin.bin_code}</p>
+                                        </div>
+                                        <span
+                                            className={cn(
+                                                "px-2 py-1 text-xs rounded capitalize",
+                                                bin.status === "active" ? "bg-emerald-500/20 text-emerald-400" :
+                                                    bin.status === "maintenance" ? "bg-amber-500/20 text-amber-400" :
+                                                        "bg-red-500/20 text-red-400"
+                                            )}
+                                        >
+                                            {bin.status}
+                                        </span>
+                                    </div>
+
+                                    {/* Fill Level */}
+                                    <div className="space-y-1">
+                                        <div className="flex justify-between text-xs">
+                                            <span className="text-slate-400">Fill Level</span>
+                                            <span className="text-white">{bin.fill_level}%</span>
+                                        </div>
+                                        <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
+                                            <div
+                                                className="h-full rounded-full transition-all"
+                                                style={{
+                                                    width: `${bin.fill_level}%`,
+                                                    backgroundColor: getFillLevelColor(bin.fill_level),
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Controls */}
+                                    <div className="flex gap-2 pt-2 border-t border-white/10">
+                                        {/* Status Toggle */}
+                                        <select
+                                            value={bin.status}
+                                            onChange={(e) => updateBin(bin.id, { status: e.target.value as MapBin["status"] })}
+                                            disabled={isUpdating === bin.id}
+                                            className="flex-1 px-2 py-1.5 text-xs rounded bg-white/10 text-white border-0 focus:ring-1 focus:ring-emerald-500"
+                                        >
+                                            <option value="active">Active</option>
+                                            <option value="maintenance">Maintenance</option>
+                                            <option value="offline">Offline</option>
+                                        </select>
+
+                                        {/* Operational Toggle */}
+                                        <button
+                                            onClick={() => updateBin(bin.id, { is_operational: !bin.is_operational })}
+                                            disabled={isUpdating === bin.id}
+                                            className={cn(
+                                                "p-1.5 rounded",
+                                                bin.is_operational ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
+                                            )}
+                                            title={bin.is_operational ? "Operational" : "Not Operational"}
+                                        >
+                                            <Power className="h-4 w-4" />
+                                        </button>
+
+                                        {/* Empty Bin */}
+                                        <button
+                                            onClick={() => emptyBin(bin.id)}
+                                            disabled={isUpdating === bin.id || bin.fill_level === 0}
+                                            className="p-1.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 disabled:opacity-50"
+                                            title="Mark as Emptied"
+                                        >
+                                            {isUpdating === bin.id ? (
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                            ) : (
+                                                <Trash2 className="h-4 w-4" />
+                                            )}
+                                        </button>
+                                    </div>
                                 </div>
-                                <div className="flex gap-2">
-                                    <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors">
-                                        <Filter className="h-4 w-4" />
-                                        Filters
-                                    </button>
-                                    <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-cyan-500 text-black font-medium transition-all hover:shadow-lg">
-                                        <Route className="h-4 w-4" />
-                                        Generate Route
-                                    </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Route Optimization Tab */}
+                {activeTab === "routes" && (
+                    <div className="space-y-6">
+                        <div className="glass-card p-6">
+                            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                                <Truck className="h-5 w-5 text-emerald-400" />
+                                Optimized Pickup Route
+                            </h3>
+
+                            {/* Route Map */}
+                            <div className="rounded-lg overflow-hidden mb-4" style={{ height: "400px" }}>
+                                {MAPBOX_TOKEN ? (
+                                    <Map
+                                        {...viewState}
+                                        onMove={evt => setViewState(evt.viewState)}
+                                        style={{ width: "100%", height: "100%" }}
+                                        mapStyle="mapbox://styles/mapbox/dark-v11"
+                                        mapboxAccessToken={MAPBOX_TOKEN}
+                                    >
+                                        <NavigationControl position="top-right" />
+                                        {/* Show bins that need pickup (>70% full) */}
+                                        {bins
+                                            .filter(b => b.fill_level >= 70)
+                                            .sort((a, b) => b.fill_level - a.fill_level)
+                                            .map((bin, index) => (
+                                                <Marker
+                                                    key={bin.id}
+                                                    latitude={bin.latitude}
+                                                    longitude={bin.longitude}
+                                                    anchor="center"
+                                                >
+                                                    <div className="relative">
+                                                        <div
+                                                            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                                                            style={{ backgroundColor: getFillLevelColor(bin.fill_level) }}
+                                                        >
+                                                            {index + 1}
+                                                        </div>
+                                                    </div>
+                                                </Marker>
+                                            ))
+                                        }
+                                    </Map>
+                                ) : (
+                                    <div className="h-full flex items-center justify-center bg-slate-800 text-slate-400">
+                                        Mapbox token not configured
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Route Details */}
+                            <div className="grid md:grid-cols-3 gap-4 mb-4">
+                                <div className="p-4 rounded-lg bg-white/5">
+                                    <p className="text-sm text-slate-400">Bins to Collect</p>
+                                    <p className="text-2xl font-bold text-white">
+                                        {bins.filter(b => b.fill_level >= 70).length}
+                                    </p>
+                                </div>
+                                <div className="p-4 rounded-lg bg-white/5">
+                                    <p className="text-sm text-slate-400">Estimated Distance</p>
+                                    <p className="text-2xl font-bold text-white">
+                                        {(bins.filter(b => b.fill_level >= 70).length * 1.5).toFixed(1)} km
+                                    </p>
+                                </div>
+                                <div className="p-4 rounded-lg bg-white/5">
+                                    <p className="text-sm text-slate-400">Estimated Time</p>
+                                    <p className="text-2xl font-bold text-white">
+                                        {Math.round(bins.filter(b => b.fill_level >= 70).length * 8)} min
+                                    </p>
                                 </div>
                             </div>
 
                             {/* Priority Queue */}
-                            <div className="space-y-3 mb-6">
-                                <h4 className="text-sm font-medium text-slate-400">Priority Pickup Queue</h4>
+                            <h4 className="font-medium text-white mb-2">Priority Queue</h4>
+                            <div className="space-y-2">
                                 {bins
-                                    .sort((a, b) => b.fillLevel - a.fillLevel)
-                                    .slice(0, 5)
+                                    .filter(b => b.fill_level >= 70)
+                                    .sort((a, b) => b.fill_level - a.fill_level)
                                     .map((bin, index) => (
-                                        <motion.div
+                                        <div
                                             key={bin.id}
-                                            initial={{ opacity: 0, x: -20 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            transition={{ delay: index * 0.1 }}
-                                            className={cn(
-                                                "flex items-center gap-4 p-4 rounded-lg border",
-                                                bin.fillLevel >= 80 ? "bg-red-500/10 border-red-500/30" :
-                                                    bin.fillLevel >= 60 ? "bg-yellow-500/10 border-yellow-500/30" :
-                                                        "bg-white/5 border-white/10"
-                                            )}
+                                            className="flex items-center gap-3 p-3 rounded-lg bg-white/5"
                                         >
-                                            <div className={cn(
-                                                "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold",
-                                                index === 0 ? "bg-red-500 text-white" :
-                                                    index === 1 ? "bg-orange-500 text-white" :
-                                                        "bg-white/20 text-white"
-                                            )}>
+                                            <span
+                                                className="w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold"
+                                                style={{ backgroundColor: getFillLevelColor(bin.fill_level), color: "white" }}
+                                            >
                                                 {index + 1}
-                                            </div>
+                                            </span>
                                             <div className="flex-1">
-                                                <p className="font-medium text-white">{bin.name}</p>
-                                                <p className="text-sm text-slate-400">{bin.address}</p>
+                                                <p className="text-white font-medium">{bin.name}</p>
+                                                <p className="text-xs text-slate-400">{bin.bin_code}</p>
                                             </div>
                                             <div className="text-right">
-                                                <p className={cn(
-                                                    "text-xl font-bold",
-                                                    bin.fillLevel >= 80 ? "text-red-400" :
-                                                        bin.fillLevel >= 60 ? "text-yellow-400" :
-                                                            "text-emerald-400"
-                                                )}>
-                                                    {bin.fillLevel}%
+                                                <p className="text-white font-medium">{bin.fill_level}%</p>
+                                                <p className="text-xs text-slate-400">
+                                                    {bin.fill_level >= 90 ? "Critical" : "High"}
                                                 </p>
-                                                <p className="text-xs text-slate-400">Fill Level</p>
                                             </div>
-                                            <div className="text-right">
-                                                <p className="text-white font-medium">{Math.round(5 + index * 8)} min</p>
-                                                <p className="text-xs text-slate-400">ETA</p>
-                                            </div>
-                                        </motion.div>
-                                    ))}
-                            </div>
-
-                            {/* Route Summary */}
-                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                                <div className="p-4 rounded-lg bg-white/5 text-center">
-                                    <p className="text-2xl font-bold text-white">5</p>
-                                    <p className="text-sm text-slate-400">Stops</p>
-                                </div>
-                                <div className="p-4 rounded-lg bg-white/5 text-center">
-                                    <p className="text-2xl font-bold text-cyan-400">12.4 km</p>
-                                    <p className="text-sm text-slate-400">Total Distance</p>
-                                </div>
-                                <div className="p-4 rounded-lg bg-white/5 text-center">
-                                    <p className="text-2xl font-bold text-emerald-400">45 min</p>
-                                    <p className="text-sm text-slate-400">Est. Duration</p>
-                                </div>
-                                <div className="p-4 rounded-lg bg-white/5 text-center">
-                                    <p className="text-2xl font-bold text-yellow-400">~180 kg</p>
-                                    <p className="text-sm text-slate-400">Expected Waste</p>
-                                </div>
+                                        </div>
+                                    ))
+                                }
+                                {bins.filter(b => b.fill_level >= 70).length === 0 && (
+                                    <p className="text-center text-slate-400 py-4">
+                                        No bins need immediate pickup
+                                    </p>
+                                )}
                             </div>
                         </div>
+                    </div>
+                )}
 
-                        {/* Data Privacy Section */}
-                        <div className="glass-card p-6">
-                            <div className="flex items-center gap-3 mb-4">
-                                <div className="p-2 rounded-lg bg-cyan-500/20">
-                                    <Shield className="h-5 w-5 text-cyan-400" />
-                                </div>
-                                <div>
-                                    <h3 className="font-semibold text-white">Data Privacy & Handling</h3>
-                                    <p className="text-sm text-slate-400">How we protect user data</p>
-                                </div>
+                {/* Alerts Tab */}
+                {activeTab === "alerts" && (
+                    <div className="space-y-4">
+                        {alerts.filter(a => !a.dismissed).length === 0 ? (
+                            <div className="glass-card p-8 text-center">
+                                <CheckCircle className="h-12 w-12 text-emerald-400 mx-auto mb-4" />
+                                <p className="text-white font-medium">All Clear!</p>
+                                <p className="text-slate-400">No active alerts at this time</p>
                             </div>
-                            <div className="grid lg:grid-cols-3 gap-4">
-                                <div className="p-4 rounded-lg bg-white/5">
-                                    <CheckCircle className="h-5 w-5 text-emerald-400 mb-2" />
-                                    <p className="font-medium text-white mb-1">End-to-End Encryption</p>
-                                    <p className="text-sm text-slate-400">All data is encrypted in transit and at rest</p>
-                                </div>
-                                <div className="p-4 rounded-lg bg-white/5">
-                                    <CheckCircle className="h-5 w-5 text-emerald-400 mb-2" />
-                                    <p className="font-medium text-white mb-1">Minimal Data Collection</p>
-                                    <p className="text-sm text-slate-400">We only collect what&apos;s necessary for service</p>
-                                </div>
-                                <div className="p-4 rounded-lg bg-white/5">
-                                    <CheckCircle className="h-5 w-5 text-emerald-400 mb-2" />
-                                    <p className="font-medium text-white mb-1">User Control</p>
-                                    <p className="text-sm text-slate-400">Users can delete their data anytime</p>
-                                </div>
-                            </div>
-                        </div>
-                    </motion.div>
+                        ) : (
+                            alerts
+                                .filter(a => !a.dismissed)
+                                .map((alert) => (
+                                    <div
+                                        key={alert.id}
+                                        className={cn(
+                                            "glass-card p-4 flex items-start gap-4 border-l-4",
+                                            alert.type === "critical" ? "border-red-500" :
+                                                alert.type === "warning" ? "border-amber-500" : "border-blue-500"
+                                        )}
+                                    >
+                                        <div className={cn(
+                                            "p-2 rounded-full",
+                                            alert.type === "critical" ? "bg-red-500/20 text-red-400" :
+                                                alert.type === "warning" ? "bg-amber-500/20 text-amber-400" :
+                                                    "bg-blue-500/20 text-blue-400"
+                                        )}>
+                                            <AlertTriangle className="h-5 w-5" />
+                                        </div>
+                                        <div className="flex-1">
+                                            <h3 className="font-semibold text-white">{alert.title}</h3>
+                                            <p className="text-sm text-slate-400">{alert.message}</p>
+                                        </div>
+                                        <button
+                                            onClick={() => dismissAlert(alert.id)}
+                                            className="p-1 rounded hover:bg-white/10 text-slate-400"
+                                        >
+                                            <X className="h-5 w-5" />
+                                        </button>
+                                    </div>
+                                ))
+                        )}
+                    </div>
                 )}
             </div>
-        </main>
+        </div>
     );
 }
 
 // Stat Card Component
 function StatCard({
-    icon: Icon,
-    label,
+    title,
     value,
-    suffix,
+    icon,
     trend,
+    subtitle,
     color,
 }: {
-    icon: React.ElementType;
-    label: string;
-    value: string | number;
-    suffix?: string;
-    trend?: number;
-    color: "emerald" | "cyan" | "purple" | "yellow";
+    title: string;
+    value: string;
+    icon: React.ReactNode;
+    trend?: string;
+    subtitle?: string;
+    color: "emerald" | "blue" | "purple" | "cyan";
 }) {
     const colorClasses = {
-        emerald: "text-emerald-400 bg-emerald-500/20",
-        cyan: "text-cyan-400 bg-cyan-500/20",
-        purple: "text-purple-400 bg-purple-500/20",
-        yellow: "text-yellow-400 bg-yellow-500/20",
+        emerald: "bg-emerald-500/20 text-emerald-400",
+        blue: "bg-blue-500/20 text-blue-400",
+        purple: "bg-purple-500/20 text-purple-400",
+        cyan: "bg-cyan-500/20 text-cyan-400",
     };
 
     return (
-        <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="glass-card p-4"
-        >
-            <div className="flex items-start justify-between">
+        <div className="glass-card p-5">
+            <div className="flex items-center gap-3 mb-3">
                 <div className={cn("p-2 rounded-lg", colorClasses[color])}>
-                    <Icon className="h-5 w-5" />
+                    {icon}
                 </div>
-                {trend !== undefined && (
-                    <div className={cn(
-                        "flex items-center gap-1 text-xs font-medium",
-                        trend >= 0 ? "text-emerald-400" : "text-red-400"
-                    )}>
-                        {trend >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                        {Math.abs(trend)}%
-                    </div>
+            </div>
+            <div className="text-2xl font-bold text-white">{value}</div>
+            <div className="flex items-center justify-between mt-1">
+                <span className="text-sm text-slate-400">{title}</span>
+                {trend && (
+                    <span className="text-xs text-emerald-400 flex items-center gap-1">
+                        <TrendingUp className="h-3 w-3" />
+                        {trend}
+                    </span>
+                )}
+                {subtitle && (
+                    <span className="text-xs text-slate-500">{subtitle}</span>
                 )}
             </div>
-            <p className="text-2xl font-bold text-white mt-3">{value}</p>
-            <p className="text-sm text-slate-400">{label}</p>
-        </motion.div>
+        </div>
+    );
+}
+
+// Quick Stat Component
+function QuickStat({ label, value, critical }: { label: string; value: string; critical?: boolean }) {
+    return (
+        <div className="flex items-center justify-between py-2 border-b border-white/5">
+            <span className="text-sm text-slate-400">{label}</span>
+            <span className={cn("font-medium", critical && parseInt(value) > 0 ? "text-red-400" : "text-white")}>
+                {value}
+            </span>
+        </div>
     );
 }

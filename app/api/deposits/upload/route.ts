@@ -166,6 +166,7 @@ export async function POST(request: NextRequest) {
         const image = formData.get("image") as File | null;
         const itemType = formData.get("itemType") as string || "Electronic Device";
         const weight = parseFloat(formData.get("weight") as string || "100");
+        const binId = formData.get("binId") as string || null;
 
         if (!image) {
             return NextResponse.json(
@@ -174,7 +175,7 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        console.log(`[UPLOAD] File: ${image.name}, size: ${image.size}, type: ${itemType}, weight: ${weight}g`);
+        console.log(`[UPLOAD] File: ${image.name}, size: ${image.size}, type: ${itemType}, weight: ${weight}g, bin: ${binId || "none"}`);
 
         // Upload to R2 first
         const arrayBuffer = await image.arrayBuffer();
@@ -262,6 +263,7 @@ export async function POST(request: NextRequest) {
                 .insert({
                     id: transactionId,
                     user_id: supabaseUserId,
+                    bin_id: binId || null,
                     item_type: itemType,
                     weight: weight,
                     points_earned: points,

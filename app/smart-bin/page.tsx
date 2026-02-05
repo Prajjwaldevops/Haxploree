@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     Smartphone,
@@ -22,6 +23,7 @@ import {
     Shield,
     Flame,
     X,
+    Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { translations, languageOptions, type Language, type Translations } from "@/lib/translations";
@@ -37,7 +39,7 @@ import {
 
 // Types
 type BinStatus = "operational" | "full" | "maintenance";
-type ScreenState = "idle" | "scan" | "deposit" | "complete" | "unavailable" | "onboarding";
+type ScreenState = "idle" | "scan" | "deposit" | "complete" | "unavailable" | "onboarding" | "auth";
 
 interface DepositResult {
     itemType: string;
@@ -78,10 +80,16 @@ const onboardingSteps = [
 ];
 
 export default function SmartBinPage() {
+    const router = useRouter();
+
+    // Admin authentication state
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
     // State
     const [language, setLanguage] = useState<Language>("en");
     const [showLanguageMenu, setShowLanguageMenu] = useState(false);
-    const [screen, setScreen] = useState<ScreenState>("idle");
+    const [screen, setScreen] = useState<ScreenState>("auth");
     const [binStatus, setBinStatus] = useState<BinStatus>("operational");
     const [fillLevel, setFillLevel] = useState(67);
     const [isScanning, setIsScanning] = useState(false);
@@ -105,8 +113,30 @@ export default function SmartBinPage() {
 
     const t: Translations = translations[language];
 
+    // Check admin authentication
+    useEffect(() => {
+        const checkAuth = () => {
+            const adminSession = document.cookie
+                .split("; ")
+                .find((row) => row.startsWith("admin_session="));
+
+            if (adminSession) {
+                setIsAuthenticated(true);
+                setScreen("idle");
+            } else {
+                setIsAuthenticated(false);
+                setScreen("auth");
+            }
+            setIsCheckingAuth(false);
+        };
+
+        checkAuth();
+    }, []);
+
     // Load saved preferences and check first-time user
     useEffect(() => {
+        if (!isAuthenticated) return;
+
         const saved = localStorage.getItem("binLanguage") as Language;
         if (saved && translations[saved]) {
             setLanguage(saved);
@@ -240,6 +270,45 @@ export default function SmartBinPage() {
 
     const statusStyle = getStatusStyle();
     const StatusIcon = statusStyle.icon;
+
+    // Loading state while checking auth
+    if (isCheckingAuth) {
+        return (
+            <main className="min-h-screen bg-[#01030c] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                    <Loader2 className="h-10 w-10 animate-spin text-emerald-400" />
+                    <p className="text-slate-400">Authenticating...</p>
+                </div>
+            </main>
+        );
+    }
+
+    // Auth required screen
+    if (!isAuthenticated && screen === "auth") {
+        return (
+            <main className="min-h-screen bg-[#01030c] flex items-center justify-center">
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="glass-card p-8 max-w-md text-center"
+                >
+                    <div className="w-16 h-16 rounded-full bg-amber-500/20 flex items-center justify-center mx-auto mb-6">
+                        <Lock className="h-8 w-8 text-amber-400" />
+                    </div>
+                    <h1 className="text-2xl font-bold text-white mb-4">Admin Access Required</h1>
+                    <p className="text-slate-400 mb-6">
+                        The Smart Bin interface requires admin authentication. Please log in with your admin credentials.
+                    </p>
+                    <button
+                        onClick={() => router.push("/admin-login")}
+                        className="w-full py-3 px-6 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-black font-semibold transition-colors"
+                    >
+                        Go to Admin Login
+                    </button>
+                </motion.div>
+            </main>
+        );
+    }
 
     return (
         <main className="min-h-screen bg-[#01030c] overflow-hidden relative flex flex-col">
