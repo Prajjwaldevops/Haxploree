@@ -15,6 +15,7 @@ import {
     Loader2,
     RefreshCcw,
     Image as ImageIcon,
+    Trash2,
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import { cn } from "@/lib/utils";
@@ -77,6 +78,13 @@ export default function DashboardPage() {
 
     const quickActions = [
         {
+            title: "Smart Bin",
+            description: "Scan QR & earn points",
+            icon: Trash2,
+            href: "/smart-bin",
+            color: "amber",
+        },
+        {
             title: "Find Bin",
             description: "Locate nearest smart bin",
             icon: MapPin,
@@ -99,10 +107,12 @@ export default function DashboardPage() {
         },
     ];
 
+
     const colorClasses: Record<string, string> = {
         emerald: "from-emerald-500 to-emerald-600 shadow-emerald-500/30",
         cyan: "from-cyan-500 to-cyan-600 shadow-cyan-500/30",
         purple: "from-purple-500 to-purple-600 shadow-purple-500/30",
+        amber: "from-amber-500 to-amber-600 shadow-amber-500/30",
     };
 
     return (
