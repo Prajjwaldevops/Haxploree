@@ -228,7 +228,7 @@ export function useUserData(): UseUserDataReturn {
     useEffect(() => {
         if (!userStats?.id) return;
 
-        const channel = supabase
+        const transactionChannel = supabase
             .channel('user-transactions')
             .on(
                 'postgres_changes',
@@ -246,8 +246,29 @@ export function useUserData(): UseUserDataReturn {
             )
             .subscribe();
 
+        const userChannel = supabase
+            .channel('user-updates')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'users',
+                    filter: `id=eq.${userStats.id}`,
+                },
+                (payload) => {
+                    console.log('User update:', payload);
+                    // Refetch user stats on update
+                    fetchUserStats().then((stats) => {
+                        if (stats) setUserStats(stats);
+                    });
+                }
+            )
+            .subscribe();
+
         return () => {
-            supabase.removeChannel(channel);
+            supabase.removeChannel(transactionChannel);
+            supabase.removeChannel(userChannel);
         };
     }, [userStats?.id, fetchTransactions]);
 
