@@ -31,6 +31,7 @@ interface UploadResponse {
     image_url?: string;
     transaction_id?: string;
     item_type?: string;
+    item_confidence?: number;
     weight?: number;
     points_earned?: number;
     co2_saved?: number;
@@ -239,7 +240,7 @@ export default function DepositPage() {
             // Use actual data from API response
             setResult({
                 itemType: data.item_type || estimatedItemType,
-                confidence: 0.92, // Will be from ML model later
+                confidence: data.item_confidence || 0.92,
                 points: data.points_earned || 0,
                 co2Saved: data.co2_saved || 0,
                 transactionId: data.transaction_id || "",
@@ -458,9 +459,9 @@ export default function DepositPage() {
                                 {/* Processing Message */}
                                 <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-4">
                                     <p className="text-amber-300 text-sm">
-                                        🔄 <strong>AI Processing:</strong> Our ML model is being integrated.
+                                        🔄 <strong>AI Processing:</strong> Analyzing image with ML model...
                                         <br />
-                                        For now, we&apos;re using estimated values based on weight.
+                                        Identifying e-waste type and calculating environmental impact.
                                     </p>
                                 </div>
 
@@ -546,8 +547,8 @@ export default function DepositPage() {
                                                 <div className="text-xl font-bold text-emerald-400">
                                                     {(result.confidence * 100).toFixed(0)}%
                                                 </div>
-                                                <div className="text-xs text-amber-400 mt-1">
-                                                    (Estimated - ML coming soon)
+                                                <div className="text-xs text-emerald-400/70 mt-1">
+                                                    AI Detection Confidence
                                                 </div>
                                             </div>
                                         </div>

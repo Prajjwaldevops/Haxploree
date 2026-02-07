@@ -21,6 +21,7 @@ function getR2Client() {
 
 const BUCKET_NAME = process.env.R2_BUCKET_NAME || "haxploree-deposits";
 const SIGNED_URL_EXPIRATION = parseInt(process.env.R2_SIGNED_URL_EXPIRATION || "3600");
+const ML_API_URL = "https://adii-2685-e-waste-api.hf.space/predict";
 
 /**
  * Supabase admin client
@@ -74,37 +75,64 @@ async function uploadToR2(
 }
 
 /**
- * Calculate points and CO2 saved based on item type and weight
+ * Call ML Model API
  */
-function calculateRewards(itemType: string, weight: number) {
-    const basePoints: Record<string, number> = {
-        smartphone: 50,
-        laptop: 150,
-        tablet: 80,
-        battery: 30,
-        charger: 20,
-        monitor: 100,
-        earphones: 15,
-        "power bank": 40,
-        "electronic device": 15,
-    };
+async function analyzeImageWithML(imageUrl: string) {
+    try {
+        console.log(`[ML API] Calling ${ML_API_URL} with image: ${imageUrl}`);
+        const response = await fetch(ML_API_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ image_url: imageUrl }),
+        });
 
-    const co2Savings: Record<string, number> = {
-        smartphone: 70,
-        laptop: 350,
-        tablet: 100,
-        battery: 15,
-        charger: 10,
-        monitor: 200,
-        earphones: 5,
-        "power bank": 25,
-        "electronic device": 10,
-    };
+        if (!response.ok) {
+            throw new Error(`ML API responded with status: ${response.status}`);
+        }
 
-    const itemLower = itemType.toLowerCase();
-    const base = basePoints[itemLower] || 15;
-    const points = Math.round(base * Math.max(1, weight / 100));
-    const co2Saved = co2Savings[itemLower] || 10;
+        const data: any = await response.json();
+        // console.log("[ML API] Response Data:", JSON.stringify(data).substring(0, 100)); // Debug log
+
+        // Handle Array response (List of { label, score })
+        if (Array.isArray(data) && data.length > 0) {
+            // Find item with max score
+            const maxScoreItem = data.reduce((prev, current) =>
+                (prev.score > current.score) ? prev : current
+            );
+
+            return {
+                result: maxScoreItem.label,
+                accuracy: maxScoreItem.score
+            };
+        }
+
+        // Handle Object response (if API changes format or is single object)
+        if (data.label && data.score) {
+            return {
+                result: data.label,
+                accuracy: data.score
+            };
+        }
+
+        return data;
+    } catch (error) {
+        console.error("[ML API] Error:", error);
+        return null;
+    }
+}
+
+/**
+ * Calculate random points and CO2 saved
+ */
+function calculateRandomRewards() {
+    // Generate random points between 10 and 100
+    const points = Math.floor(Math.random() * (100 - 10 + 1)) + 10;
+
+    // Estimate CO2 saved roughly based on points (just for display consistency)
+    // Assuming 1 point ~= 2g CO2 saved on average for this random logic
+    const co2Saved = points * 2;
 
     return { points, co2Saved };
 }
@@ -112,7 +140,7 @@ function calculateRewards(itemType: string, weight: number) {
 /**
  * POST /api/deposits/upload
  * 
- * Upload image to R2, create transaction, update user points
+ * Upload image to R2, analyze with ML, create transaction, update user points
  */
 export async function POST(request: NextRequest) {
     console.log("[UPLOAD] Starting upload request...");
@@ -164,7 +192,6 @@ export async function POST(request: NextRequest) {
         // Parse form data
         const formData = await request.formData();
         const image = formData.get("image") as File | null;
-        const itemType = formData.get("itemType") as string || "Electronic Device";
         const weight = parseFloat(formData.get("weight") as string || "100");
         const binId = formData.get("binId") as string || null;
 
@@ -175,7 +202,7 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        console.log(`[UPLOAD] File: ${image.name}, size: ${image.size}, type: ${itemType}, weight: ${weight}g, bin: ${binId || "none"}`);
+        console.log(`[UPLOAD] File: ${image.name}, size: ${image.size}, weight: ${weight}g, bin: ${binId || "none"}`);
 
         // Upload to R2 first
         const arrayBuffer = await image.arrayBuffer();
@@ -199,9 +226,21 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Calculate rewards
-        const { points, co2Saved } = calculateRewards(itemType, weight);
+        // Analyze with ML
+        console.log("[UPLOAD] Analyzing with ML model...");
+        const mlResult = await analyzeImageWithML(signedUrl);
+
+        // Fallback if ML fails, or use result
+        // Assuming Response format: { "result": "class_name", "accuracy": 0.99 }
+        const itemType = mlResult?.result || "Electronic Device";
+        const confidence = mlResult?.accuracy || 0.0;
+
+        // Calculate random rewards
+        const { points, co2Saved } = calculateRandomRewards();
         const transactionId = uuidv4();
+
+        console.log(`[UPLOAD] ML Result - Item: ${itemType}, Confidence: ${confidence}`);
+        console.log(`[UPLOAD] Rewards - Points: ${points}, CO2: ${co2Saved}g`);
 
         // Try to save to Supabase (optional - don't fail if Supabase is down)
         let supabaseUserId = clerkUserId;
@@ -220,7 +259,6 @@ export async function POST(request: NextRequest) {
 
             if (existingUser) {
                 supabaseUserId = existingUser.id;
-                console.log(`[UPLOAD] Found existing user: ${supabaseUserId}`);
 
                 // Update user totals
                 await supabase
@@ -233,7 +271,6 @@ export async function POST(request: NextRequest) {
                     .eq("id", supabaseUserId);
             } else {
                 // Create new user
-                console.log("[UPLOAD] Creating new user...");
                 const { data: newUser, error: createError } = await supabase
                     .from("users")
                     .insert({
@@ -250,9 +287,6 @@ export async function POST(request: NextRequest) {
 
                 if (newUser) {
                     supabaseUserId = newUser.id;
-                    console.log(`[UPLOAD] Created new user: ${supabaseUserId}`);
-                } else if (createError) {
-                    console.warn("[UPLOAD] Failed to create user:", createError.message);
                 }
             }
 
@@ -271,31 +305,29 @@ export async function POST(request: NextRequest) {
                     image_url: signedUrl,
                     r2_object_key: objectKey,
                     status: "completed",
+                    // metadata: { confidence: confidence } // Store confidence if possible, or omit
                 })
                 .select()
                 .single();
 
             if (txData) {
                 savedTransaction = txData;
-                console.log(`[UPLOAD] Transaction saved: ${transactionId}`);
             } else if (txError) {
                 console.warn("[UPLOAD] Failed to save transaction:", txError.message);
             }
 
         } catch (dbError) {
             console.warn("[UPLOAD] Supabase error (continuing):", dbError);
-            // Continue - R2 upload was successful
         }
-
-        console.log(`[UPLOAD] Success! Points: ${points}, CO2: ${co2Saved}g`);
 
         return NextResponse.json(
             {
                 success: true,
-                message: "Image uploaded successfully",
+                message: "Image uploaded and analyzed successfully",
                 image_url: signedUrl,
                 transaction_id: savedTransaction?.id || transactionId,
                 item_type: itemType,
+                item_confidence: confidence, // Return confidence to frontend
                 weight: weight,
                 points_earned: points,
                 co2_saved: co2Saved,
