@@ -192,9 +192,9 @@ export default function DepositPage() {
             return;
         }
 
-        // 200m radius = 0.2 km
-        if (nearestDistance === null || nearestDistance > 0.2) {
-            setError("You are not in the location area. Please go within 200m of a dustbin.");
+        // 10km radius
+        if (nearestDistance === null || nearestDistance > 10) {
+            setError("You are not in the location area. Please go within 10km of a dustbin.");
             return;
         }
 
