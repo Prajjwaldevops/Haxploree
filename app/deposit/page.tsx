@@ -119,6 +119,7 @@ export default function DepositPage() {
     const [uploadProgress, setUploadProgress] = useState<string>("");
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [bins, setBins] = useState<MapBin[]>([]);
+    const [radiusCheckEnabled, setRadiusCheckEnabled] = useState(false);
 
     const { isSignedIn } = useUser();
     const { nearestDistance, isLoading: isLocationLoading, error: locationError } = useUserLocation(bins);
@@ -133,6 +134,18 @@ export default function DepositPage() {
                 }
             })
             .catch(err => console.error("Error fetching bins:", err));
+    }, []);
+
+    // Fetch settings
+    useEffect(() => {
+        fetch("/api/admin/settings?key=radius_check_enabled")
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && data.settings && data.settings.length > 0) {
+                    setRadiusCheckEnabled(data.settings[0].value === true);
+                }
+            })
+            .catch(err => console.error("Error fetching settings:", err));
     }, []);
 
     // Add toast notification
@@ -192,9 +205,11 @@ export default function DepositPage() {
             return;
         }
 
-        // 10km radius
-        if (nearestDistance === null || nearestDistance > 10) {
-            setError("You are not in the location area. Please go within 10km of a dustbin.");
+        // Radius Check Logic
+        const maxDistance = radiusCheckEnabled ? 0.5 : 10; // 0.5km (500m) if enabled, else 10km
+
+        if (nearestDistance === null || nearestDistance > maxDistance) {
+            setError(`You are not in the location area. Please go within ${maxDistance >= 1 ? maxDistance + "km" : (maxDistance * 1000) + "m"} of a dustbin.`);
             return;
         }
 

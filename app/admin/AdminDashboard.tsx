@@ -68,7 +68,7 @@ interface Alert {
     dismissed: boolean;
 }
 
-type Tab = "overview" | "bins" | "routes" | "alerts" | "users";
+type Tab = "overview" | "bins" | "routes" | "alerts" | "users" | "settings";
 
 export default function AdminDashboard() {
     const router = useRouter();
@@ -91,7 +91,9 @@ export default function AdminDashboard() {
     const [selectedUser, setSelectedUser] = useState<string>("");
     const [userStats, setUserStats] = useState<any>(null);
     const [userLoading, setUserLoading] = useState(false);
-    const [chartMetric, setChartMetric] = useState<"count" | "points" | "co2">("count");
+    // Settings State
+    const [settings, setSettings] = useState<{ key: string; value: any }[]>([]);
+    const [settingsLoading, setSettingsLoading] = useState(false);
 
     // Fetch dashboard data
     const fetchData = useCallback(async () => {
@@ -163,6 +165,49 @@ export default function AdminDashboard() {
         }
     }, [selectedUser]);
 
+    // Fetch settings
+    useEffect(() => {
+        if (activeTab === "settings") {
+            setSettingsLoading(true);
+            fetch("/api/admin/settings")
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) setSettings(data.settings || []);
+                })
+                .catch(err => console.error("Error fetching settings:", err))
+                .finally(() => setSettingsLoading(false));
+        }
+    }, [activeTab]);
+
+    // Update setting toggle
+    const toggleSetting = async (key: string, currentValue: boolean) => {
+        try {
+            const newValue = !currentValue;
+            // Optimistic update
+            setSettings(prev => {
+                const existing = prev.find(s => s.key === key);
+                if (existing) {
+                    return prev.map(s => s.key === key ? { ...s, value: newValue } : s);
+                } else {
+                    return [...prev, { key, value: newValue }];
+                }
+            });
+
+            await fetch("/api/admin/settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    key,
+                    value: newValue,
+                    description: key === "radius_check_enabled" ? "Enable 500m radius check for deposits" : ""
+                }),
+            });
+        } catch (error) {
+            console.error("Error updating setting:", error);
+            // Revert on error (could act more gracefully here)
+        }
+    };
+
     // Update bin status/fill level
     const updateBin = async (binId: string, updates: Partial<MapBin>) => {
         setIsUpdating(binId);
@@ -227,6 +272,7 @@ export default function AdminDashboard() {
         { id: "bins", label: "Bin Management", icon: <Trash2 className="h-4 w-4" /> },
         { id: "routes", label: "Route Optimization", icon: <Route className="h-4 w-4" /> },
         { id: "alerts", label: "Alerts", icon: <Bell className="h-4 w-4" /> },
+        { id: "settings", label: "Settings", icon: <Settings className="h-4 w-4" /> },
     ];
 
     if (isLoading) {
@@ -758,6 +804,58 @@ export default function AdminDashboard() {
                                     </div>
                                 ))
                         )}
+                    </div>
+                )}
+
+                {/* Settings Tab */}
+                {activeTab === "settings" && (
+                    <div className="space-y-6">
+                        <div className="glass-card p-6">
+                            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                                <Settings className="h-5 w-5 text-emerald-400" />
+                                System Settings
+                            </h3>
+
+                            {settingsLoading ? (
+                                <div className="flex justify-center py-8">
+                                    <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
+                                        <div>
+                                            <h4 className="font-medium text-white">Enforce 500m Deposit Radius</h4>
+                                            <p className="text-sm text-slate-400 mt-1">
+                                                Only allow deposits when user is within 500m of a bin.
+                                            </p>
+                                        </div>
+
+                                        <button
+                                            onClick={() => {
+                                                const setting = settings.find(s => s.key === "radius_check_enabled");
+                                                toggleSetting("radius_check_enabled", setting?.value === true);
+                                            }}
+                                            className={cn(
+                                                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900",
+                                                settings.find(s => s.key === "radius_check_enabled")?.value === true
+                                                    ? "bg-emerald-500"
+                                                    : "bg-slate-700"
+                                            )}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                                                    settings.find(s => s.key === "radius_check_enabled")?.value === true
+                                                        ? "translate-x-6"
+                                                        : "translate-x-1"
+                                                )}
+                                            />
+                                        </button>
+                                    </div>
+                                    {/* Add more settings here in future */}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>
