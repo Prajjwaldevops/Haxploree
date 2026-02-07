@@ -128,7 +128,7 @@ export default function Footer() {
                         <span className="font-bold text-emerald-400">Team Prakriti</span>
                     </p>
                     <p className="text-sm text-slate-500">
-                        HAXPLORE 2025 • Making the Earth cleaner, one device at a time.
+                        HAXPLORE 2026 • Making the Earth cleaner, one device at a time.
                     </p>
                 </div>
             </div>

@@ -26,12 +26,12 @@ export default function Hero() {
                     <div className="flex animate-marquee whitespace-nowrap">
                         <span className="text-xs font-bold uppercase tracking-[0.3em] text-emerald-400 mx-4 flex items-center gap-2">
                             <Sparkles className="h-3 w-3" />
-                            POWERED BY TEAM PRAKRITI • HAXPLORE 2025 • TEAM PRAKRITI
+                            POWERED BY TEAM PRAKRITI • HAXPLORE 2026 • TEAM PRAKRITI
                             <Sparkles className="h-3 w-3" />
                         </span>
                         <span className="text-xs font-bold uppercase tracking-[0.3em] text-emerald-400 mx-4 flex items-center gap-2">
                             <Sparkles className="h-3 w-3" />
-                            POWERED BY TEAM PRAKRITI • HAXPLORE 2025 • TEAM PRAKRITI
+                            POWERED BY TEAM PRAKRITI • HAXPLORE 2026 • TEAM PRAKRITI
                             <Sparkles className="h-3 w-3" />
                         </span>
                     </div>
