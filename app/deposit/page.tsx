@@ -206,11 +206,13 @@ export default function DepositPage() {
         }
 
         // Radius Check Logic
-        const maxDistance = radiusCheckEnabled ? 0.5 : 10; // 0.5km (500m) if enabled, else 10km
+        if (radiusCheckEnabled) {
+            const maxDistance = 0.5; // 0.5km (500m)
 
-        if (nearestDistance === null || nearestDistance > maxDistance) {
-            setError(`You are not in the location area. Please go within ${maxDistance >= 1 ? maxDistance + "km" : (maxDistance * 1000) + "m"} of a dustbin.`);
-            return;
+            if (nearestDistance === null || nearestDistance > maxDistance) {
+                setError(`You are not in the location area. Please go within 500m of a dustbin.`);
+                return;
+            }
         }
 
         setError(null);
