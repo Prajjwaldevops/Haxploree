@@ -1,3 +1,17 @@
+Hosted Link : [https://haxploree.vercel.app/
+](url)
+Github Repo : [https://github.com/prajjwaldevops/haxploree
+](url)
+Demo Video link:[ https://youtu.be/k20OB8-w3Ek?si=2qyMUIymv4wQDQ0b
+](url)
+PPT link : [https://drive.google.com/file/d/1vqp2fm8ccK7FTcQefEdhk8656FGvpUTx/view?usp=drivesdk
+](url)
+
+Admin credentials 
+Username: admin
+password: root@2309
+
+
 Haxploree E-Waste Management System: Comprehensive Technical Documentation
 1. Executive Summary
 Haxploree is a cutting-edge E-Waste Management System designed to tackle the global challenge of electronic waste through gamification and technology. By leveraging AI for object detection and a sophisticated rewards system, we incentivize users to recycle responsibly. The platform is built on a modern, high-performance tech stack ensuring scalability, security, and a premium user experience. This document provides an in-depth look at our architecture, design philosophy, and the complex integrations that power the system.
