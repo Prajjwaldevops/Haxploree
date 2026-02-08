@@ -12,7 +12,9 @@ PPT link : [https://drive.google.com/file/d/1vqp2fm8ccK7FTcQefEdhk8656FGvpUTx/vi
 
 
 Admin credentials 
+
 Username: admin
+
 password: root@2309
 
 
